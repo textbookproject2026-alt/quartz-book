@@ -1,0 +1,67 @@
+name: ci
+
+# The builder's proof (BOOK-ONE-TO-QUARTZ §8 step 8): its own tests, the fixture
+# book, and a full build of book one from its current main. Nothing is deployed:
+# reconcile and the Pages upload are §8 step 9.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Cache Quartz plugins
+        uses: actions/cache@v5
+        with:
+          path: .quartz/plugins
+          # Exact key only, no restore-keys: a pin bump must miss the cache.
+          # `quartz plugin install` keeps a populated plugin directory without
+          # comparing it with the lock file, so a fallback restore would build
+          # with the old plugins behind a green run.
+          key: ${{ runner.os }}-plugins-${{ hashFiles('quartz.lock.json') }}
+
+      - run: npm ci
+
+      - name: Install Quartz plugins
+        run: npx quartz plugin install
+
+      - name: Style
+        run: npx prettier --check builder test fixtures/registry.json quartz.config.yaml
+
+      - name: The builder's tests (fixture book, fixture registry)
+        run: node --test test/lib.test.mjs test/build.test.mjs
+
+      - name: Check out book one's main, anonymously, as the builder will
+        run: >
+          git -c credential.helper= clone --quiet --depth 1 --branch main
+          https://github.com/textbookproject2026-alt/textbook.git "$RUNNER_TEMP/book-one"
+
+      - name: Build book one
+        run: ./build-book.sh "$RUNNER_TEMP/book-one" --branch main --out "$RUNNER_TEMP/book-one-site"
+
+      - name: Check book one's build
+        run: node test/check-book-one.mjs "$RUNNER_TEMP/book-one-site" "$RUNNER_TEMP/book-one"
+
+      - name: Keep the build for a look
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: book-one-site
+          path: ${{ runner.temp }}/book-one-site
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
