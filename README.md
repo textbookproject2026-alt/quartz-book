@@ -1,17 +1,126 @@
-# Quartz v5
+# quartz-book
 
-> “[One] who works with the door open gets all kinds of interruptions, but [they] also occasionally gets clues as to what the world is and what might be important.” — Richard Hamming
+The shared builder for the platform's books. Every book is built by this one copy of
+Quartz, with one configuration, from the book's own repository, which holds only the
+book (BOOK-ONE-TO-QUARTZ §0, decision D1, in `textbook-registry/design/`).
 
-Quartz is a set of tools that helps you publish your [digital garden](https://jzhao.xyz/posts/networked-thought) and notes as a website for free.
+**Every platform book is built by this repository.** If it is deleted, renamed or made
+private, no book rebuilds, and the last deployment of each keeps serving. Treat it as
+production infrastructure.
 
-🔗 Read the documentation and get started: https://quartz.jzhao.xyz/
+- **The plan:** `design/BOOK-ONE-TO-QUARTZ.md` in `textbookproject2026-alt/textbook-registry`.
+  This repo is §8 step 8.
+- **The registry:** `registry.json` in the same repo. The builder reads it from `main` at
+  every build.
+- **The platform's plugins:** `textbookproject2026-alt/quartz-edition-extras`, pinned in
+  `quartz.lock.json`.
+- **Service inventory:** `docs/INFRASTRUCTURE.md` in `textbook-registry`.
 
-[Join the Discord Community](https://discord.gg/cRFFHYye7t)
+**What it doesn't do yet.** It builds; it doesn't deploy. The `reconcile` workflow, the
+upload to Cloudflare Pages and the `build-nudge` Worker are §8 steps 9 and 10. No
+Cloudflare credential exists in this repository.
 
-## Sponsors
+---
 
-<p align="center">
-  <a href="https://github.com/sponsors/jackyzha0">
-    <img src="https://cdn.jsdelivr.net/gh/jackyzha0/jackyzha0/sponsorkit/sponsors.svg" />
-  </a>
-</p>
+## Building a book
+
+```
+npm ci
+npx quartz plugin install
+./build-book.sh <book checkout> --branch <branch> [--out <dir>] [--registry <registry.json>]
+```
+
+`<book checkout>` is a git checkout of the book's repository at the commit to build. The
+builder only reads it. `--branch` says which branch the build is for. `--out` defaults
+to `public/`. Without `--registry`, the registry is fetched from its `main`.
+
+For example, book one:
+
+```
+git clone https://github.com/textbookproject2026-alt/textbook.git ../book-one
+./build-book.sh ../book-one --branch main --out public
+```
+
+Exit status: `0` built, `2` refused (below), anything else a failed build.
+
+### What a build does
+
+1. **Reads the book's slug** from its `textbook.config.json`, and everything else from
+   the book's registry entry: the title, `site.domain`, `content.repo`, the live branch,
+   the Plausible script, the licence and whether suggest-edit is on. This replaces the
+   book repo's `configure.mjs` and `templates/publish.js` for the site. A registry change
+   reaches the book at its next build.
+2. **Refuses** a `retired` book, a slug the registry doesn't have, a checkout with
+   uncommitted changes to published files (the marker would name the wrong commit), and
+   a book with its own file at `/how-to-comment`.
+3. **Renders this book's Quartz config** from the shared `quartz.config.yaml`, filling in
+   the lines marked `SET PER BOOK`:
+   - `edit-on-github`: `repo`, `branch` (the branch being built), **`contentDir: ""`**
+     (a book is built from its repo root, so its Edit links must not gain the plugin's
+     default `content/` prefix), and **`suggestEndpoint`**: the registry's
+     `platform.suggest_edit_endpoint` when the book has `suggest_edit.enabled`, and `""`
+     otherwise, which hides the button.
+   - `edition-integrations`: `plausibleScriptSrc`, and `siteDomain`, so Plausible counts
+     only on the book's own domain, never on `pages.dev` or `localhost`.
+   - `baseUrl`, `pageTitle`, the footer's licence link, and `ignorePatterns`.
+4. **Builds with an allowlist** (D3). Only `index.md`, `chapters/`, `assets/`,
+   `glossary.md` and `community/` are published. Everything else at the top of the book
+   repo goes into `ignorePatterns`, because Quartz copies every non-Markdown file it
+   finds. Quartz builds from a copy of the checkout, with the builder's
+   **`/how-to-comment`** page added (D5).
+5. **Adds**:
+   - `_redirects` (D14): a 301 from each page's Obsidian Publish address to its Quartz
+     address wherever they differ, in both the `+` and `%20` spellings of a space, plus
+     `/docs/how-to-comment` and `/docs/for-course-coordinators`.
+   - `_headers` with `X-Robots-Tag: noindex` on every path, for any branch but the live
+     one (D13).
+   - `<link rel="canonical">` on `site.domain` in every page.
+   - The build marker, `/.well-known/textbook.json`: the slug, the branch, the book
+     commit, a digest of the book's registry entry (and the one platform value a build
+     reads, the suggest-edit endpoint), and the builder commit. It has no timestamp, so
+     the same inputs give the same marker.
+6. **Checks the output against the allowlist.** Any file that is neither from an
+   allowlisted path nor generated by Quartz or the builder fails the build.
+   `node builder/check-output.mjs <dir>` runs the same check on its own.
+
+Quartz reads `quartz.config.yaml` only from its working directory, so the build runs in
+a scratch directory that holds the rendered config and links everything else back here.
+
+## What's here
+
+| Path | What |
+|---|---|
+| `quartz/`, `package.json`, `package-lock.json`, `tsconfig.json`, … | Quartz v5, upstream `jackyzha0/quartz` at `9cf87ff` (the `v5` branch). The same Quartz as `textbook-edition-template`, unmodified |
+| `quartz.config.yaml` | The one shared config. Graph on (D11), SPA off, dark mode off (D12) |
+| `quartz.lock.json` | Every plugin's pinned commit, including the two extras plugins (§4b) |
+| `build-book.sh` | The build, above |
+| `builder/lib.mjs` | Every decision the build makes, as pure functions |
+| `builder/prepare.mjs`, `builder/finish.mjs` | The steps before and after Quartz |
+| `builder/check-output.mjs` | The allowlist check on its own |
+| `builder/pages/how-to-comment.md` | The reader page every book gets, from book one's `docs/how-to-comment.md` |
+| `fixtures/book/` | A small book used by the tests. `chapters/QA.md` is the design fixture, moved from book one (§4c) |
+| `fixtures/registry.json` | Three fixture books: suggest on, suggest off, and retired |
+| `test/` | `lib.test.mjs` (no Quartz), `build.test.mjs` (builds the fixture), `check-book-one.mjs` (checks a build of book one) |
+| `.github/workflows/ci.yml` | Runs the tests, then builds book one from its current `main` and checks it |
+
+## Tests
+
+```
+node --test test/lib.test.mjs test/build.test.mjs
+./build-book.sh ../book-one --branch main --out /tmp/book-one-site
+node test/check-book-one.mjs /tmp/book-one-site ../book-one
+```
+
+## Changing things
+
+- **Design values** (colours, fonts, sizes, print): not here. Edit `design.yaml` in
+  `quartz-edition-extras` (BOOK-ONE-TO-QUARTZ §4c). The theme block in
+  `quartz.config.yaml` is overridden by it.
+- **The extras pin:** `npx quartz plugin update edition-integrations edit-on-github`,
+  then commit `quartz.lock.json`. Every book rebuilds with the new builder commit once
+  `reconcile` exists (§4b). If `.quartz/plugins` already holds the plugins, delete it
+  first: `plugin install` keeps a populated directory without checking the lock.
+- **Quartz itself:** merge from `upstream` (`jackyzha0/quartz`, branch `v5`), as the
+  edition template does.
+
+Quartz is © jackyzha0 and contributors, MIT licence (`LICENSE.txt`).

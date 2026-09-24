@@ -1,0 +1,345 @@
+# yaml-language-server: $schema=./quartz/plugins/quartz-plugins.schema.json
+#
+# The one Quartz configuration every platform book is built with
+# (BOOK-ONE-TO-QUARTZ §0, D1). A book has no Quartz config of its own.
+#
+# Lines marked "SET PER BOOK" are placeholders. build-book.sh never runs
+# Quartz against this file directly: it renders a copy with that book's values
+# from the registry (builder/render-config.mjs) and builds with the copy. The
+# placeholders are what you get from a bare `npx quartz build` here.
+#
+# The plugin list mirrors textbook-edition-template/quartz.config.yaml, which
+# mirrors quartz.config.default.yaml (v5). Deviations from the edition template
+# are commented "Builder:".
+
+configuration:
+  pageTitle: "Not configured" # SET PER BOOK: the registry's `title`
+  pageTitleSuffix: ""
+  # DO NOT set this to true. Quartz's SPA navigation destroys the Hypothes.is
+  # client irrecoverably (the edition template's config has the history: four
+  # rounds of debugging). Every click is a full page load.
+  enableSPA: false
+  enablePopovers: true
+  # Plausible's per-site script is injected by edition-integrations. Keep this
+  # null or every view double-counts.
+  analytics: null
+  locale: en-US
+  baseUrl: example.org # SET PER BOOK: the registry's `site.domain`
+  # SET PER BOOK: everything in the book repo outside the allowlist
+  # (build-book.sh, BOOK-ONE-TO-QUARTZ §0 and D3).
+  ignorePatterns: []
+  # Builder: overridden by design.yaml (edition-integrations, BOOK-ONE-TO-QUARTZ
+  # §4a). Quartz still needs the block to build, but its values never reach the
+  # page. Change colours and fonts in quartz-edition-extras'
+  # plugins/edition-integrations/design.yaml, not here.
+  theme:
+    fontOrigin: googleFonts
+    cdnCaching: true
+    typography:
+      header: Inter
+      body: Inter
+      code: JetBrains Mono
+    colors:
+      lightMode:
+        light: "#FFFFFF"
+        lightgray: "#E6E6E6"
+        gray: "#9B9BA1"
+        darkgray: "#2B2B2B"
+        dark: "#2B2B2B"
+        secondary: "#7C6CF0"
+        tertiary: "#6A57E0"
+        highlight: "#EEEBFD"
+        textHighlight: "#FDF2B3"
+      darkMode:
+        light: "#161618"
+        lightgray: "#393639"
+        gray: "#646464"
+        darkgray: "#D4D4D4"
+        dark: "#EBEBEC"
+        secondary: "#A79AF7"
+        tertiary: "#8F7FF2"
+        highlight: "rgba(124, 108, 240, 0.15)"
+        textHighlight: "#b3aa0288"
+
+plugins:
+  - source: github:quartz-community/created-modified-date
+    enabled: false
+    options:
+      defaultDateType: modified
+      priority:
+        - frontmatter
+        - git
+        - filesystem
+    order: 10
+  - source: github:quartz-community/syntax-highlighting
+    enabled: true
+    options:
+      theme:
+        light: github-light
+        dark: github-dark
+      keepBackground: false
+    order: 20
+  - source: github:quartz-community/obsidian-flavored-markdown
+    enabled: true
+    options:
+      enableInHtmlEmbed: false
+      enableCheckbox: true
+    order: 30
+  - source: github:quartz-community/github-flavored-markdown
+    enabled: true
+    order: 40
+  - source: github:quartz-community/table-of-contents
+    enabled: true
+    order: 50
+    layout:
+      position: right
+      priority: 30
+  - source: github:quartz-community/crawl-links
+    enabled: true
+    options:
+      # Obsidian's "shortest path" link style, which the authoring app writes.
+      markdownLinkResolution: shortest
+    order: 60
+  - source: github:quartz-community/description
+    enabled: true
+    order: 70
+  - source: github:quartz-community/latex
+    enabled: true
+    options:
+      renderEngine: katex
+    order: 80
+  - source: github:quartz-community/citations
+    enabled: false
+    order: 85
+  - source: github:quartz-community/hard-line-breaks
+    enabled: false
+    order: 90
+  - source: github:quartz-community/ox-hugo
+    enabled: false
+    order: 91
+  - source: github:quartz-community/roam
+    enabled: false
+    order: 92
+  - source: github:quartz-community/remove-draft
+    enabled: true
+  - source: github:quartz-community/explicit-publish
+    enabled: false
+  - source: github:quartz-community/alias-redirects
+    enabled: true
+  - source: github:quartz-community/content-index
+    enabled: true
+    options:
+      enableSiteMap: true
+      enableRSS: true
+  - source: github:quartz-community/favicon
+    enabled: true
+  - source: github:quartz-community/og-image
+    enabled: true
+  # Builder: off. It writes a CNAME file for GitHub Pages. Books are on
+  # Cloudflare Pages, where the file would be served as a stray page.
+  - source: github:quartz-community/cname
+    enabled: false
+  - source: github:quartz-community/canvas-page
+    enabled: true
+  - source: github:quartz-community/content-page
+    enabled: true
+  - source: github:quartz-community/folder-page
+    enabled: true
+  - source: github:quartz-community/tag-page
+    enabled: true
+  - source: github:quartz-community/explorer
+    enabled: true
+    layout:
+      position: left
+      priority: 50
+  # Builder: the graph is on in every book, at the top of the right rail
+  # (BOOK-ONE-TO-QUARTZ §4a, D11). The edition template gets the same block at
+  # §8 step 22, and parity checks that the two match (§8 step 13). The
+  # Hypothes.is sidebar covers the rail while it is open.
+  - source: github:quartz-community/graph
+    enabled: true
+    layout:
+      position: right
+      priority: 10
+  - source: github:quartz-community/search
+    enabled: true
+    layout:
+      position: left
+      priority: 20
+      group: toolbar
+      groupOptions:
+        grow: true
+  - source: github:quartz-community/backlinks
+    enabled: true
+    layout:
+      position: right
+      priority: 50
+  - source: github:quartz-community/article-title
+    enabled: true
+    layout:
+      position: beforeBody
+      priority: 10
+  - source: github:quartz-community/content-meta
+    enabled: true
+    layout:
+      position: beforeBody
+      priority: 20
+  - source: github:quartz-community/tag-list
+    enabled: false
+    layout:
+      position: beforeBody
+      priority: 30
+  - source: github:quartz-community/page-title
+    enabled: true
+    layout:
+      position: left
+      priority: 10
+  # Dark mode stays off until the client decides D12 (BOOK-ONE-TO-QUARTZ §4c).
+  - source: github:quartz-community/darkmode
+    enabled: false
+    layout:
+      position: left
+      priority: 30
+      group: toolbar
+  - source: github:quartz-community/reader-mode
+    enabled: true
+    layout:
+      position: left
+      priority: 35
+      group: toolbar
+  - source: github:quartz-community/breadcrumbs
+    enabled: true
+    layout:
+      position: beforeBody
+      priority: 5
+      condition: not-index
+  # Stays disabled: reader discussion is Hypothes.is, not giscus.
+  - source: github:quartz-community/comments
+    enabled: false
+    options:
+      provider: giscus
+      options: {}
+    layout:
+      position: afterBody
+      priority: 10
+  - source: github:quartz-community/footer
+    enabled: true
+    options:
+      links: {} # SET PER BOOK: the licence, from the registry's `licence`
+  - source: github:quartz-community/recent-notes
+    enabled: false
+  - source: github:quartz-community/spacer
+    enabled: true
+    options: {}
+    order: 25
+    layout:
+      position: left
+      priority: 25
+      display: mobile-only
+  - source: github:quartz-community/bases-page
+    enabled: true
+    options: {}
+    order: 50
+  - source: github:quartz-community/note-properties
+    enabled: true
+    options:
+      includeAll: false
+      includedProperties:
+        - description
+        - tags
+        - aliases
+      excludedProperties: []
+      hidePropertiesView: false
+      delimiters: "---"
+      language: yaml
+    order: 5
+    layout:
+      position: beforeBody
+      priority: 15
+      display: all
+  - source: github:quartz-community/unlisted-pages
+    enabled: true
+    options: {}
+    order: 45
+  - source: github:quartz-community/encrypted-pages
+    enabled: true
+    options:
+      iterations: 600000
+      passwordField: password
+      unlistWhenEncrypted: false
+      outputPath: static/encryptedContentIndex.json
+    order: 900
+    layout:
+      position: body
+      priority: 100
+      display: all
+  - source: github:quartz-community/stacked-pages
+    enabled: false
+    layout:
+      position: afterBody
+      priority: 50
+      display: all
+
+  # ---------------------------------------------------------------------------
+  # The platform's own plugins (quartz-edition-extras), pinned in
+  # quartz.lock.json. Books pick up a change here only when that pin moves
+  # (BOOK-ONE-TO-QUARTZ §4b).
+  # ---------------------------------------------------------------------------
+
+  # design.yaml, Hypothes.is, Plausible, the reader runtime (tbTrack, tag
+  # helper, annotation badge), and the citation, title and lead transforms.
+  - source:
+      repo: "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
+      subdir: plugins/edition-integrations
+      name: edition-integrations
+    enabled: true
+    options:
+      plausibleScriptSrc: "" # SET PER BOOK: `analytics.plausible.script_src`, or ""
+      siteDomain: "" # SET PER BOOK: `site.domain`; Plausible counts only there
+      tagHelper: true
+      annotationBadge: true
+      # Inert by decision (no Hypothes.is Publisher tier). Leave empty.
+      hypothesisGroupId: ""
+
+  # The controls row: Edit on GitHub, View revision history, Suggest an edit.
+  - source:
+      repo: "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
+      subdir: plugins/edit-on-github
+      name: edit-on-github
+    enabled: true
+    options:
+      repo: "" # SET PER BOOK: `content.repo`
+      branch: main # SET PER BOOK: the branch being built
+      # A book is built from its repo root, not from content/, so its Edit
+      # links must not gain a content/ prefix (the plugin's default).
+      contentDir: ""
+      suggestEndpoint: "" # SET PER BOOK: the platform's endpoint when `suggest_edit.enabled`, else ""
+    layout:
+      position: beforeBody
+      priority: 25
+
+layout:
+  groups:
+    toolbar:
+      priority: 35
+      direction: row
+      gap: 0.5rem
+  byPageType:
+    "404":
+      positions:
+        beforeBody: []
+        left: []
+        right: []
+    content: {}
+    folder:
+      exclude:
+        - reader-mode
+      positions:
+        right: []
+    tag:
+      exclude:
+        - reader-mode
+      positions:
+        right: []
+    canvas: {}
+    bases: {}

@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "platform": {
+    "suggest_edit_endpoint": "https://suggest-edit.example.invalid/api/suggest-edit"
+  },
+  "books": [
+    {
+      "slug": "design-fixture",
+      "status": "preview",
+      "title": "Design fixture",
+      "summary": "The builder's CI fixture: QA.md and one of each kind of page.",
+      "licence": "CC-BY-SA-4.0",
+      "maintainer": { "github": "textbookproject2026-alt", "name": "Platform" },
+      "content": {
+        "repo": "textbookproject2026-alt/quartz-book",
+        "live_branch": "main",
+        "drafts_branch": "drafts"
+      },
+      "site": {
+        "domain": "design-fixture.example.invalid",
+        "host": {
+          "kind": "static",
+          "provider": "cloudflare-pages",
+          "project": "design-fixture",
+          "paid_by": "platform",
+          "builder": "quartz-book"
+        },
+        "legacy_origins": []
+      },
+      "analytics": { "plausible": null },
+      "annotations": { "hypothesis_groups": [] },
+      "suggest_edit": { "enabled": true, "counted_from": null },
+      "cms": { "enabled": false, "host": null },
+      "editions": null
+    },
+    {
+      "slug": "no-suggest-fixture",
+      "status": "live",
+      "title": "No suggest fixture",
+      "summary": "As design-fixture, with suggest-edit off.",
+      "licence": "CC-BY-4.0",
+      "maintainer": { "github": "textbookproject2026-alt", "name": "Platform" },
+      "content": {
+        "repo": "textbookproject2026-alt/quartz-book",
+        "live_branch": "main",
+        "drafts_branch": "drafts"
+      },
+      "site": {
+        "domain": "no-suggest-fixture.example.invalid",
+        "host": {
+          "kind": "static",
+          "provider": "cloudflare-pages",
+          "project": "no-suggest-fixture",
+          "paid_by": "platform",
+          "builder": "quartz-book"
+        },
+        "legacy_origins": []
+      },
+      "analytics": { "plausible": null },
+      "annotations": { "hypothesis_groups": [] },
+      "suggest_edit": { "enabled": false, "counted_from": null },
+      "cms": { "enabled": false, "host": null },
+      "editions": { "template_repo": "textbookproject2026-alt/textbook-edition-template" }
+    },
+    {
+      "slug": "retired-fixture",
+      "status": "retired",
+      "title": "Retired fixture",
+      "summary": "A retired book. The builder must refuse it.",
+      "licence": "CC-BY-SA-4.0",
+      "maintainer": { "github": "textbookproject2026-alt", "name": "Platform" },
+      "content": {
+        "repo": "textbookproject2026-alt/quartz-book",
+        "live_branch": "main",
+        "drafts_branch": "drafts"
+      },
+      "site": {
+        "domain": "retired-fixture.example.invalid",
+        "host": {
+          "kind": "static",
+          "provider": "cloudflare-pages",
+          "project": "retired-fixture",
+          "paid_by": "platform",
+          "builder": "quartz-book"
+        },
+        "legacy_origins": []
+      },
+      "analytics": { "plausible": null },
+      "annotations": { "hypothesis_groups": [] },
+      "suggest_edit": { "enabled": true, "counted_from": null },
+      "cms": { "enabled": false, "host": null },
+      "editions": null
+    }
+  ]
+}
