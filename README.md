@@ -127,12 +127,15 @@ it is previewed on every book before it reaches any.
   `quartz-edition-extras`' `main` is ahead of the pin in `quartz.lock.json`. If it is,
   and no pull request for that extras commit was ever opened, it starts
   `bump-extras.yml`. That moves every extras plugin to the one commit on the branch
-  `bot/extras-<commit>`, opens a pull request, and starts its preview and CI. Closing
-  the pull request unmerged keeps the old pin; the bot won't reopen it. By hand:
+  `bot/extras-<commit>` and opens a pull request, whose preview and CI start on their
+  own. It closes any older `bot/extras-*` pull request still open, so an older pin
+  can't be merged after a newer one. Closing the pull request unmerged keeps the old
+  pin; the bot won't reopen it. By hand:
   Actions → **bump-extras** → Run workflow, branch `main`, `commit` empty for extras'
   `main`.
 - **The preview.** `design-preview.yml` runs on every pull request into `main` (and is
-  started by the bot for its own). It builds each book on the builder, from the book's
+  started by the bot for its own if it had to fall back to `GITHUB_TOKEN`). It builds
+  each book on the builder, from the book's
   live branch, with the pull request's builder commit, as a `noindex` preview
   (`build-book.sh --preview`), and uploads it to the book's Pages project on the
   branch **`design-<pr>`**: `https://design-<pr>.<project>.pages.dev/`. Then it posts
@@ -142,14 +145,31 @@ it is previewed on every book before it reaches any.
 - **`stable`.** The tag `reconcile` builds from. When `ci` passes on a push to `main`,
   `stable.yml` moves `stable` to that commit and starts `reconcile` (run name
   `reconcile: stable, every book`), so every book's marker names the new builder
-  commit within that one run. It only moves forward on its own.
+  commit within that one run. It only moves forward on its own. If the tag push fails
+  four times, the run fails and opens (or comments on) the issue **stable did not
+  move**, which closes itself the next time `stable` moves.
 - **Rollback.** Actions → **stable** → Run workflow, branch `main`, `commit` the commit
   to go back to. `reconcile` rebuilds every book with it. It holds until the next merge
   to `main` passes CI, so revert or fix the bad change on `main` first.
 - **If `stable` is missing,** every `reconcile` run from `main` stops at its first step
   and says so. Run **stable** by hand with `main`'s head.
 - **Needs** the repository setting _Allow GitHub Actions to create and approve pull
-  requests_ (Settings → Actions → General), for the bot's pull request.
+  requests_ (Settings → Actions → General), and the **`quartz-book bot`** GitHub App:
+  - Why: `main` requires the `build` check. A pull request opened with
+    `GITHUB_TOKEN` gets its `pull_request` runs held until a person approves them,
+    and a `build` from a dispatched run doesn't count on the pull request. Opened by
+    an App, its `ci` and `design-preview` run at once and `build` counts.
+  - The App: owned by `textbookproject2026-alt`, no webhook, repository permissions
+    _Contents: Read and write_ and _Pull requests: Read and write_ (Metadata: read
+    comes with them), installed on `quartz-book` only. Not the suggest-edit App,
+    which stays issues-only.
+  - In `quartz-book` (Settings → Secrets and variables → Actions): the variable
+    `BOT_APP_CLIENT_ID` (the App's Client ID) and the secret `BOT_APP_PRIVATE_KEY`
+    (a private key generated on the App's page). Only `bump-extras` reads them.
+  - Without them, the bot falls back to `GITHUB_TOKEN`: it still opens the pull
+    request and dispatches the preview and CI, warns, and the pull request waits for
+    someone to approve its held runs (the pull request's Checks, **Approve and
+    run**).
 
 ## What's here
 

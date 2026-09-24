@@ -12,8 +12,10 @@ name: design-preview
 # Cloudflare token, the comment only pull-requests: write.
 #
 # A pull request from a fork builds, but isn't deployed or commented on: its
-# workflows get no secrets. bump-extras.yml starts this with workflow_dispatch,
-# because a pull request opened with GITHUB_TOKEN starts no pull_request runs.
+# workflows get no secrets. The bot's pull requests start it like any other when
+# the bot App opens them. When bump-extras.yml falls back to GITHUB_TOKEN, their
+# pull_request run is held for approval, so it also starts this with
+# workflow_dispatch.
 # By hand: Actions → design-preview → Run workflow, on the pull request's
 # branch, with its number.
 

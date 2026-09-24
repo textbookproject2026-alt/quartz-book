@@ -11,6 +11,9 @@ name: stable
 #                   commit to go back to (any commit on main). The rollback
 #                   holds until the next merge to main passes CI, so revert or
 #                   fix the bad change on main before merging anything else.
+#   Push fails      it retries, then fails the run and opens (or comments on)
+#                   the issue "stable did not move", which closes when stable
+#                   next moves.
 
 run-name: >-
   stable: ${{ inputs.commit && format('to {0}, by hand', inputs.commit) || format('after ci on {0}', github.event.workflow_run.head_sha) }}
@@ -29,6 +32,7 @@ on:
 permissions:
   contents: write
   actions: write
+  issues: write
 
 concurrency:
   group: stable
@@ -56,19 +60,70 @@ jobs:
           [[ "$TO" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::\"$TO\" is not a full commit hash."; exit 1; }
           git merge-base --is-ancestor "$TO" origin/main 2>/dev/null \
             || { echo "::error::$TO is not on main."; exit 1; }
-          git fetch --quiet --force origin 'refs/tags/stable:refs/tags/stable' 2>/dev/null || true
-          if from="$(git rev-parse -q --verify 'refs/tags/stable^{commit}')"; then
+          # Where stable is now. A failed lookup stops here: guessing "no tag"
+          # would skip the forward-only check below.
+          remote_stable() {
+            git ls-remote --exit-code origin 'refs/tags/stable^{}' 'refs/tags/stable' \
+              | sort -k2 -r | head -n1 | cut -f1
+          }
+          from="$(remote_stable)" || {
+            status=$?
+            [ "$status" = 2 ] || { echo "::error::Couldn't read the stable tag from origin (git ls-remote exit $status)."; exit 1; }
+            from=""
+          }
+          if [ -n "$from" ]; then
             if [ "$from" = "$TO" ]; then
               echo "stable is already at $TO."; echo "moved=false" >> "$GITHUB_OUTPUT"; exit 0
             fi
+            git fetch --quiet origin "$from"
             if [ "$BY_HAND" != true ] && ! git merge-base --is-ancestor "$from" "$TO"; then
               echo "::notice::stable is at $from, which isn't behind $TO (a later run moved it), so it stays."
               echo "moved=false" >> "$GITHUB_OUTPUT"; exit 0
             fi
           fi
-          git push --quiet --force origin "$TO:refs/tags/stable"
+          # GitHub has refused a tag push with a 500 (24 Sep 2026), so try four
+          # times. A push that errors may still have landed: check after each.
+          for wait in 10 30 60 0; do
+            if git push --quiet --force origin "$TO:refs/tags/stable"; then break; fi
+            if [ "$(remote_stable || true)" = "$TO" ]; then break; fi
+            if [ "$wait" = 0 ]; then
+              echo "::error::stable didn't move to $TO: four pushes failed. It is still at ${from:-nothing}, so every book stays on that builder."
+              echo "failed=true" >> "$GITHUB_OUTPUT"; exit 1
+            fi
+            echo "::warning::The push of stable failed; trying again in $wait s."
+            sleep "$wait"
+          done
           echo "stable: ${from:-nothing} → $TO"
           echo "moved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Say so in an issue, if stable didn't move
+        if: failure() && steps.move.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TO: ${{ inputs.commit || github.event.workflow_run.head_sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="\`stable\` couldn't be moved to $TO ($RUN). Every book keeps building with the builder \`stable\` is at now, so that commit isn't live on any book.
+
+          Run **stable** by hand (Actions → stable → Run workflow, branch \`main\`) with \`$TO\`, or with \`main\`'s head if later merges passed CI. This issue closes itself when \`stable\` next moves."
+          open="$(gh issue list --state open --search 'in:title "stable did not move"' --json number --jq '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "stable did not move" --body "$body"
+          fi
+
+      - name: Close the "stable did not move" issue
+        if: steps.move.outputs.moved == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TO: ${{ inputs.commit || github.event.workflow_run.head_sha }}
+        run: |
+          gh issue list --state open --search 'in:title "stable did not move"' --json number --jq '.[].number' |
+          while read -r n; do
+            gh issue close "$n" --comment "stable moved to ${TO:0:7} in $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+          done
 
       - name: Rebuild every book with it
         if: steps.move.outputs.moved == 'true'
