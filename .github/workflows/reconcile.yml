@@ -11,8 +11,13 @@ name: reconcile
 # minutes). Until then, and whenever the Worker is down, run it by hand:
 # Actions → reconcile → Run workflow, with `slug` empty for every book.
 #
-# Only a run from `main` deploys. A run from any other branch builds and checks,
-# and deploys nothing.
+# Only a run from `main` deploys, and it builds with the builder at the `stable`
+# tag, not at main's head (§4b, §8 step 11). stable.yml moves the tag when CI on
+# main is green; the pull request's design preview came first. A run from any
+# other branch builds with that branch's own commit, and deploys nothing.
+#
+# On the 15-minute tick it also asks whether quartz-edition-extras' main is
+# ahead of the pin, and if so starts bump-extras.yml, the bot pull request.
 
 run-name: >-
   reconcile: ${{ inputs.woken_by || 'by hand' }}, ${{ inputs.slug || 'every book' }}
@@ -25,7 +30,7 @@ on:
         required: false
         default: ""
       woken_by:
-        description: "`nudge` or `cron` when the build-nudge Worker starts the run. Empty by hand."
+        description: "`nudge` or `cron` when the build-nudge Worker starts the run, `stable` when stable.yml does. Empty by hand."
         required: false
         default: ""
 
@@ -38,18 +43,38 @@ jobs:
     timeout-minutes: 5
     outputs:
       targets: ${{ steps.plan.outputs.targets }}
+      builder: ${{ steps.builder.outputs.commit }}
     steps:
       - name: Check the inputs
         env:
           WOKEN_BY: ${{ inputs.woken_by }}
           SLUG: ${{ inputs.slug }}
         run: |
-          case "$WOKEN_BY" in ""|nudge|cron) ;; *) echo "::error::woken_by must be empty, nudge or cron, not \"$WOKEN_BY\"."; exit 1 ;; esac
+          case "$WOKEN_BY" in ""|nudge|cron|stable) ;; *) echo "::error::woken_by must be empty, nudge, cron or stable, not \"$WOKEN_BY\"."; exit 1 ;; esac
           [[ -z "$SLUG" || "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::\"$SLUG\" is not a slug."; exit 1; }
 
+      - name: Check the stable tag exists
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git -c credential.helper= ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" refs/tags/stable >/dev/null || {
+            echo "::error::quartz-book has no stable tag, so there is no builder commit to build with. Move it with Actions > stable > Run workflow (README, \"stable\")."
+            exit 1
+          }
+
+      # The builder every book in this run is built with: stable from main, this
+      # run's own commit from any other branch. Resolved once, here, so a tag
+      # that moves during the run can't mix two builders.
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.ref == 'refs/heads/main' && 'refs/tags/stable' || github.sha }}
           persist-credentials: false
+
+      - name: Which builder commit
+        id: builder
+        run: |
+          commit="$(git rev-parse HEAD)"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Builder commit $commit ($([ "$GITHUB_REF" = refs/heads/main ] && echo "stable" || echo "this run's own"))."
 
       - uses: actions/setup-node@v6
         with:
@@ -81,6 +106,7 @@ jobs:
       branch: ${{ matrix.target.branch }}
       project: ${{ matrix.target.project }}
       live: ${{ matrix.target.live }}
+      builder: ${{ needs.plan.outputs.builder }}
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -108,3 +134,49 @@ jobs:
             exit 0
           fi
           curl -fsS -X POST "$HOOK" -o /dev/null && echo "Portal rebuild requested."
+
+  # The extras pin bot (§4b): on the tick, if quartz-edition-extras' main is
+  # ahead of the pin and no pull request for that commit was ever opened, start
+  # bump-extras.yml. It rides this clock because a GitHub `schedule:` in this
+  # quiet repo would switch itself off (§0a). It never fails the run: a red
+  # tick would read as a failing book to builder-alive. It warns instead.
+  extras:
+    if: inputs.woken_by == 'cron' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Is extras' main ahead of the pin?
+        id: due
+        run: node builder/extras.mjs due
+
+      - name: Start the bot, unless it already opened this bump
+        if: steps.due.outputs.due == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.due.outputs.branch }}
+          COMMIT: ${{ steps.due.outputs.commit }}
+        run: |
+          opened="$(gh pr list -R "$GITHUB_REPOSITORY" --head "$BRANCH" --state all --json number --jq length)"
+          if [ "$opened" != 0 ]; then
+            echo "A pull request from $BRANCH was already opened (open, merged or closed), so the bot stays quiet."
+            exit 0
+          fi
+          gh workflow run bump-extras.yml -R "$GITHUB_REPOSITORY" --ref main -f commit="$COMMIT"
+          echo "Started bump-extras for extras $COMMIT."
+
+      - name: Say so if the bot couldn't be asked
+        if: failure()
+        run: echo "::warning::the extras pin check failed, so no bump pull request was started. Run bump-extras by hand (README, \"The design preview gate\")."

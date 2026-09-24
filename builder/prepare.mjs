@@ -4,6 +4,9 @@
 //
 //   node builder/prepare.mjs <book checkout> <branch> <work dir> [registry.json]
 //
+// PREVIEW=1 makes the build a noindex preview even on the live branch
+// (build-book.sh --preview, §4b).
+//
 // Without a registry file it fetches the registry's main (§0), so a registry
 // change reaches the book at its next build.
 import { execFileSync } from "node:child_process"
@@ -47,7 +50,7 @@ try {
   const config = JSON.parse(readFileSync(join(book, "textbook.config.json"), "utf8"))
   const registry = await readRegistry()
   const entry = findBook(registry, config.slug)
-  const opts = bookOptions(registry, entry, branch)
+  const opts = bookOptions(registry, entry, branch, { preview: process.env.PREVIEW === "1" })
 
   // The marker names the book commit, so what is built must be that commit.
   const dirty = git(book, "status", "--porcelain", "--", ...ALLOWLIST)

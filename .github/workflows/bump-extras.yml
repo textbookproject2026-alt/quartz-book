@@ -1,0 +1,75 @@
+name: bump-extras
+
+# The extras pin bot (BOOK-ONE-TO-QUARTZ §4b, §8 step 11). Moves every
+# quartz-edition-extras plugin in quartz.lock.json to one extras commit, on the
+# branch bot/extras-<commit>, and opens a pull request for it. reconcile.yml
+# starts it on the 15-minute tick when extras' main is ahead of the pin. By
+# hand: Actions → bump-extras → Run workflow, branch main, `commit` empty for
+# extras' main.
+#
+# A pull request opened with GITHUB_TOKEN starts no `pull_request` workflows,
+# so this starts the design preview and CI on the new branch itself.
+
+run-name: >-
+  bump-extras: ${{ inputs.commit || 'extras main' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: A full quartz-edition-extras commit. Empty for its main.
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: bump-extras
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Move the pin
+        id: bump
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: node builder/extras.mjs bump "$COMMIT"
+
+      - name: Open the pull request, and start its preview and CI
+        if: steps.bump.outputs.changed != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+          TITLE: ${{ steps.bump.outputs.title }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null; then
+            echo "$BRANCH already exists; using it as it is."
+          else
+            git switch --quiet -c "$BRANCH"
+            git add quartz.lock.json
+            git -c user.name='github-actions[bot]' \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                commit --quiet -m "$TITLE"
+            git push --quiet origin "$BRANCH"
+          fi
+          pr="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr" ]; then
+            url="$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/bump-body.md")"
+            pr="${url##*/}"
+          fi
+          echo "Pull request #$pr: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pull/$pr"
+          gh workflow run design-preview.yml --ref "$BRANCH" -f pr="$pr"
+          gh workflow run ci.yml --ref "$BRANCH"

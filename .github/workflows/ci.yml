@@ -2,7 +2,8 @@ name: ci
 
 # The builder's proof (BOOK-ONE-TO-QUARTZ §8 step 8): its own tests, the fixture
 # book, and a full build of book one from its current main. Nothing is deployed
-# here: reconcile.yml deploys (§8 step 9).
+# here: reconcile.yml deploys (§8 step 9). When this passes on a push to main,
+# stable.yml moves the `stable` tag there (§8 step 11).
 
 on:
   pull_request:
@@ -43,7 +44,7 @@ jobs:
         run: npx prettier --check builder test fixtures/registry.json quartz.config.yaml
 
       - name: The builder's tests (fixture book, fixture registry)
-        run: node --test test/lib.test.mjs test/catalog.test.mjs test/build.test.mjs
+        run: node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/build.test.mjs
 
       - name: Check out book one's main, anonymously, as the builder will
         run: >
