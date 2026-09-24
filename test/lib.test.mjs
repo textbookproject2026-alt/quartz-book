@@ -277,37 +277,61 @@ test("output: book-repo machinery fails the allowlist, generated files pass", ()
 
 // reconcile (§0a, §8 step 9)
 
-/** The fixture registry with one book like book one today: live, on Publish, no builder. */
-const withUnrecorded = {
+/**
+ * The fixture registry with two Publish books: one like book one before its
+ * cutover, naming the builder and a preview project (§8 step 7, amended 24 Sep),
+ * and one that doesn't name the builder at all.
+ */
+const publishHost = {
+  kind: "obsidian-publish",
+  site_id: "x",
+  publish_host: "publish-01.obsidian.md",
+}
+const publishBook = (slug, host) => ({
+  ...registry.books[0],
+  slug,
+  status: "live",
+  content: { repo: `example/${slug}`, live_branch: "main", drafts_branch: "drafts" },
+  site: { domain: `${slug}.example.invalid`, host, legacy_origins: [] },
+})
+const withPublish = {
   ...registry,
   books: [
     ...registry.books,
-    {
-      ...registry.books[0],
-      slug: "publish-fixture",
-      status: "live",
-      content: { repo: "example/publish-fixture", live_branch: "main", drafts_branch: "drafts" },
-      site: {
-        domain: "publish-fixture.example.invalid",
-        host: { kind: "obsidian-publish", site_id: "x", publish_host: "publish-01.obsidian.md" },
-        legacy_origins: [],
-      },
-    },
+    publishBook("publish-preview-fixture", {
+      ...publishHost,
+      builder: "quartz-book",
+      project: "publish-preview-project",
+    }),
+    publishBook("publish-fixture", publishHost),
   ],
 }
 
 test("reconcile looks after each builder book's live and drafts branches, never a retired one", () => {
-  const targets = reconcileTargets(withUnrecorded)
   assert.deepEqual(
-    targets.map((t) => `${t.slug}@${t.branch}${t.live ? " live" : ""} → ${t.project}`),
+    reconcileTargets(withPublish).map(
+      (t) => `${t.slug}@${t.branch}${t.live ? " live" : ""} → ${t.project}`,
+    ),
     [
       "design-fixture@main live → design-fixture",
       "design-fixture@drafts → design-fixture",
       "no-suggest-fixture@main live → no-suggest-fixture",
       "no-suggest-fixture@drafts → no-suggest-fixture",
+      "publish-preview-fixture@main live → publish-preview-project",
+      "publish-preview-fixture@drafts → publish-preview-project",
     ],
   )
-  assert.ok(targets.every((t) => !t.unrecorded))
+})
+
+test("a Publish book that names the builder is built on its recorded project, not one named after its slug", () => {
+  const targets = reconcileTargets(withPublish, { slug: "publish-preview-fixture" })
+  assert.deepEqual(
+    targets.map((t) => [t.branch, t.project, t.repo, t.live]),
+    [
+      ["main", "publish-preview-project", "example/publish-preview-fixture", true],
+      ["drafts", "publish-preview-project", "example/publish-preview-fixture", false],
+    ],
+  )
 })
 
 test("a book with no drafts branch, or drafts the same as live, has one target", () => {
@@ -322,44 +346,15 @@ test("a book with no drafts branch, or drafts the same as live, has one target",
 
 test("slug narrows the run to one builder book, and names what is wrong otherwise", () => {
   assert.deepEqual(
-    reconcileTargets(withUnrecorded, { slug: "no-suggest-fixture" }).map((t) => t.branch),
+    reconcileTargets(withPublish, { slug: "no-suggest-fixture" }).map((t) => t.branch),
     ["main", "drafts"],
   )
   assert.throws(
-    () => reconcileTargets(withUnrecorded, { slug: "publish-fixture" }),
+    () => reconcileTargets(withPublish, { slug: "publish-fixture" }),
     /not on the builder/,
   )
-  assert.throws(() => reconcileTargets(withUnrecorded, { slug: "retired-fixture" }), /retired/)
-  assert.throws(() => reconcileTargets(withUnrecorded, { slug: "nope" }), /no book with slug/)
-})
-
-test("unrecorded_book adds one book not yet on the builder, with its project named after its slug", () => {
-  const targets = reconcileTargets(withUnrecorded, { unrecordedBook: "publish-fixture" })
-  const added = targets.filter((t) => t.unrecorded)
-  assert.deepEqual(
-    added.map((t) => [t.slug, t.branch, t.project, t.repo]),
-    [
-      ["publish-fixture", "main", "publish-fixture", "example/publish-fixture"],
-      ["publish-fixture", "drafts", "publish-fixture", "example/publish-fixture"],
-    ],
-  )
-  // The builder books are still reconciled in the same run.
-  assert.equal(targets.length, 6)
-  // With slug too, only that book.
-  assert.equal(
-    reconcileTargets(withUnrecorded, { slug: "publish-fixture", unrecordedBook: "publish-fixture" })
-      .length,
-    2,
-  )
-})
-
-test("unrecorded_book is refused once the entry names the builder, and for a retired or unknown book", () => {
-  assert.throws(
-    () => reconcileTargets(registry, { unrecordedBook: "design-fixture" }),
-    /already names the builder/,
-  )
-  assert.throws(() => reconcileTargets(registry, { unrecordedBook: "retired-fixture" }), /retired/)
-  assert.throws(() => reconcileTargets(registry, { unrecordedBook: "nope" }), /no book with slug/)
+  assert.throws(() => reconcileTargets(withPublish, { slug: "retired-fixture" }), /retired/)
+  assert.throws(() => reconcileTargets(withPublish, { slug: "nope" }), /no book with slug/)
 })
 
 test("markers: production on the project, previews on the branch alias", () => {

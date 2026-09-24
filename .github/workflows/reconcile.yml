@@ -15,8 +15,7 @@ name: reconcile
 # and deploys nothing.
 
 run-name: >-
-  reconcile: ${{ inputs.woken_by || 'by hand' }}, ${{ inputs.slug || 'every book' }}${{
-  inputs.unrecorded_book && format(' + unrecorded {0}', inputs.unrecorded_book) || '' }}
+  reconcile: ${{ inputs.woken_by || 'by hand' }}, ${{ inputs.slug || 'every book' }}
 
 on:
   workflow_dispatch:
@@ -27,15 +26,6 @@ on:
         default: ""
       woken_by:
         description: "`nudge` or `cron` when the build-nudge Worker starts the run. Empty by hand."
-        required: false
-        default: ""
-      # TEMPORARY: §8 step 9 until step 17. Remove this input, and its use
-      # below, in the step 17 pull request.
-      unrecorded_book:
-        description: >-
-          Until §8 step 17 only. Also build this book, whose registry entry doesn't
-          name the builder yet (book one: social-research-methods). Its Pages project
-          is named after its slug.
         required: false
         default: ""
 
@@ -53,12 +43,9 @@ jobs:
         env:
           WOKEN_BY: ${{ inputs.woken_by }}
           SLUG: ${{ inputs.slug }}
-          UNRECORDED_BOOK: ${{ inputs.unrecorded_book }}
         run: |
           case "$WOKEN_BY" in ""|nudge|cron) ;; *) echo "::error::woken_by must be empty, nudge or cron, not \"$WOKEN_BY\"."; exit 1 ;; esac
-          for v in "$SLUG" "$UNRECORDED_BOOK"; do
-            [[ -z "$v" || "$v" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::\"$v\" is not a slug."; exit 1; }
-          done
+          [[ -z "$SLUG" || "$SLUG" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::\"$SLUG\" is not a slug."; exit 1; }
 
       - uses: actions/checkout@v6
         with:
@@ -72,7 +59,6 @@ jobs:
         id: plan
         env:
           SLUG: ${{ inputs.slug }}
-          UNRECORDED_BOOK: ${{ inputs.unrecorded_book }}
         run: node builder/reconcile.mjs plan
 
   book:

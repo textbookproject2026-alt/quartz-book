@@ -318,34 +318,20 @@ export const BUILDER_NAME = "quartz-book"
 /**
  * Every (book, branch) pair reconcile looks after: each registered book whose
  * site.host.builder is this builder, and isn't retired, on its live branch and
- * its drafts branch. `slug` narrows the run to one book.
+ * its drafts branch, deployed to site.host.project. `slug` narrows the run to
+ * one book.
  *
- * `unrecordedBook` is temporary (§8 step 9 until step 17). Book one gets its
- * Pages project at step 9 but its registry host isn't recorded until step 17,
- * after the cutover, so no entry names the builder in between. This names one
- * such book explicitly, for one run; its project is named after its slug, as
- * step 9 creates it. Once the entry names the builder the input is refused, so
- * it can't outlive the step that makes it unnecessary.
+ * The host kind doesn't matter here. A static host is the site readers see. An
+ * obsidian-publish host that names the builder (book one before its cutover,
+ * §8 step 7 as amended on 24 Sep) is built the same way, and its project is a
+ * preview only: readers are still served by Publish at site.domain.
  */
-export function reconcileTargets(registry, { slug = "", unrecordedBook = "" } = {}) {
-  const books = (registry?.books ?? [])
-    .filter((b) => b.site?.host?.builder === BUILDER_NAME && b.status !== "retired")
-    .map((b) => ({ book: b, project: b.site.host.project, unrecorded: false }))
+export function reconcileTargets(registry, { slug = "" } = {}) {
+  const books = (registry?.books ?? []).filter(
+    (b) => b.site?.host?.builder === BUILDER_NAME && b.status !== "retired",
+  )
 
-  if (unrecordedBook) {
-    const book = registry?.books?.find((b) => b.slug === unrecordedBook)
-    if (!book)
-      throw new Error(`unrecorded_book: no book with slug "${unrecordedBook}" in the registry.`)
-    if (book.status === "retired")
-      throw new Error(`unrecorded_book: book "${unrecordedBook}" is retired.`)
-    if (book.site?.host?.builder === BUILDER_NAME)
-      throw new Error(
-        `unrecorded_book: book "${unrecordedBook}" already names the builder in site.host.builder, so it is built like any other book. Leave unrecorded_book empty.`,
-      )
-    books.push({ book, project: book.slug, unrecorded: true })
-  }
-
-  const chosen = slug ? books.filter((b) => b.book.slug === slug) : books
+  const chosen = slug ? books.filter((b) => b.slug === slug) : books
   if (slug && chosen.length === 0) {
     const known = registry?.books?.some((b) => b.slug === slug)
     throw new Error(
@@ -355,17 +341,16 @@ export function reconcileTargets(registry, { slug = "", unrecordedBook = "" } = 
     )
   }
 
-  return chosen.flatMap(({ book, project, unrecorded }) => {
+  return chosen.flatMap((book) => {
     const live = book.content.live_branch
     const drafts = book.content.drafts_branch
     const branches = drafts && drafts !== live ? [live, drafts] : [live]
     return branches.map((branch) => ({
       slug: book.slug,
       repo: book.content.repo,
-      project,
+      project: book.site.host.project,
       branch,
       live: branch === live,
-      unrecorded,
     }))
   })
 }
