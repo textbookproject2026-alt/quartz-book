@@ -153,14 +153,10 @@ plugins:
       position: left
       priority: 50
   # Builder: the graph is on in every book, at the top of the right rail
-  # (BOOK-ONE-TO-QUARTZ §4a, D11). The edition template gets the same block at
-  # §8 step 22, and parity checks that the two match (§8 step 13). The
-  # Hypothes.is sidebar covers the rail while it is open.
-  - source: github:quartz-community/graph
-    enabled: true
-    layout:
-      position: right
-      priority: 10
+  # (BOOK-ONE-TO-QUARTZ §4a, D11). It is the platform's fork, textbook-graph
+  # (quartz-edition-extras, below with the other platform plugins). The edition
+  # template gets the same block at §8 step 22, and parity checks that the two
+  # match (§8 step 13). The Hypothes.is sidebar covers the rail while it is open.
   - source: github:quartz-community/search
     enabled: true
     layout:
@@ -303,6 +299,24 @@ plugins:
       paragraphNumbers: true
       # Inert by decision (no Hypothes.is Publisher tier). Leave empty.
       hypothesisGroupId: ""
+
+  # The graph: quartz-community/graph with nodes coloured by topic (frontmatter
+  # `topic:`, else the first tag), always-on labels and a topic legend.
+  # Upstream's options; `concept` is a marker for concept pages, not a subject,
+  # so it isn't drawn as a tag node (the portal skips it for the same reason).
+  - source:
+      repo: "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
+      subdir: plugins/textbook-graph
+      name: textbook-graph
+    enabled: true
+    options:
+      localGraph:
+        removeTags: [concept]
+      globalGraph:
+        removeTags: [concept]
+    layout:
+      position: right
+      priority: 10
 
   # The controls row: Edit on GitHub, View revision history, Suggest an edit.
   - source:

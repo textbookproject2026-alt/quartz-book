@@ -161,12 +161,6 @@
       "commit": "3eabbaa252ce175665ab3f62e1af25948a83e8b6",
       "installedAt": "2026-07-03T10:45:30.303Z"
     },
-    "graph": {
-      "source": "github:quartz-community/graph",
-      "resolved": "https://github.com/quartz-community/graph.git",
-      "commit": "46f0ba1c3c0cc484697572e7bcf315fa384d80d2",
-      "installedAt": "2026-07-03T10:45:50.631Z"
-    },
     "hard-line-breaks": {
       "source": "github:quartz-community/hard-line-breaks",
       "resolved": "https://github.com/quartz-community/hard-line-breaks.git",
@@ -274,6 +268,17 @@
       "resolved": "https://github.com/quartz-community/tag-page.git",
       "commit": "eabf3eec55c0bab7f49e69957341f34d2ae3c5a1",
       "installedAt": "2026-07-03T10:45:50.605Z"
+    },
+    "textbook-graph": {
+      "source": {
+        "repo": "https://github.com/textbookproject2026-alt/quartz-edition-extras.git",
+        "subdir": "plugins/textbook-graph",
+        "name": "textbook-graph"
+      },
+      "resolved": "https://github.com/textbookproject2026-alt/quartz-edition-extras.git",
+      "commit": "381b1104d73ce3ceab29db0291aa7ef5c624af3c",
+      "subdir": "plugins/textbook-graph",
+      "installedAt": "2026-09-24T15:13:04.374Z"
     },
     "unlisted-pages": {
       "source": "github:quartz-community/unlisted-pages",

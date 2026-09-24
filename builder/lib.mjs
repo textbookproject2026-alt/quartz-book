@@ -439,6 +439,20 @@ export const tagsOf = (frontmatter = {}, indexed = []) => {
   return [...new Set(all.map(normaliseTag).filter(Boolean))].sort()
 }
 
+/**
+ * A page's topic, which colours it in the graphs: frontmatter `topic` (a
+ * string, or the first of a list) as written, else the first frontmatter tag
+ * other than `concept`, else null. The same rule as quartz-edition-extras'
+ * textbook-graph (src/topics.ts), so a page is one topic in its book's graph
+ * and on the portal. Inline #tags don't count: their order isn't the author's.
+ */
+export const topicOf = (frontmatter = {}) =>
+  asList(frontmatter.topic)[0] ??
+  asList(frontmatter.tags ?? frontmatter.tag)
+    .map(normaliseTag)
+    .find((t) => t && t !== "concept") ??
+  null
+
 /** Folders whose pages are concept pages without saying so (book one's chapters/Definitions/). */
 const CONCEPT_FOLDERS = new Set(["definitions", "concepts", "concept"])
 
@@ -510,6 +524,7 @@ export function buildCatalog({ facts, pages, commits = [] }) {
         tags,
         concept: p.slug !== "index" && isConceptPage(p.relPath, p.frontmatter, tags),
         authors: authorsOf(p.frontmatter),
+        topic: topicOf(p.frontmatter),
         links: [...new Set((p.links ?? []).filter((s) => s !== p.slug && bySlug.has(s)))]
           .map(slugUrl)
           .sort(),

@@ -16,6 +16,7 @@ import {
   outputAllowed,
   parseGitLog,
   tagsOf,
+  topicOf,
 } from "../builder/lib.mjs"
 
 const facts = { slug: "fixture", bookCommit: "c".repeat(40) }
@@ -48,6 +49,15 @@ test("authors: a list, a comma string, or `author`", () => {
   assert.deepEqual(authorsOf({ authors: "A, B" }), ["A", "B"])
   assert.deepEqual(authorsOf({ author: "Brandon Sommer" }), ["Brandon Sommer"])
   assert.deepEqual(authorsOf({}), [])
+})
+
+test("topic: frontmatter topic as written, else the first tag that isn't concept", () => {
+  assert.equal(topicOf({ topic: "Social ontology", tags: ["methods"] }), "Social ontology")
+  assert.equal(topicOf({ topic: ["Ontology", "Methods"] }), "Ontology")
+  assert.equal(topicOf({ tags: ["concept", "#Ontology"] }), "ontology")
+  assert.equal(topicOf({ tag: "methods, ontology" }), "methods")
+  assert.equal(topicOf({ topic: " ", tags: ["concept"] }), null)
+  assert.equal(topicOf({}), null)
 })
 
 test("concept pages: type, tag, or a Definitions/Concepts folder; concept: false wins", () => {
@@ -86,6 +96,8 @@ test("the catalog: pages, links between them, concepts, book authors", () => {
   // Only links to the book's own pages; never itself, a tag page or a missing page.
   assert.deepEqual(ch3.links, ["/chapters/Definitions/Emergence"])
   assert.deepEqual(ch3.tags, ["ontology"])
+  assert.equal(ch3.topic, "ontology")
+  assert.equal(catalog.pages.find((p) => p.title === "Emergence").topic, null)
   assert.equal(ch3.source, "chapters/chapter-03.md")
   assert.equal(ch3.concept, false)
   assert.equal(catalog.pages.find((p) => p.title === "Emergence").concept, true)

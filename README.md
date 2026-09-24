@@ -173,7 +173,7 @@ node test/check-book-one.mjs /tmp/book-one-site ../book-one
 - **Design values** (colours, fonts, sizes, print): not here. Edit `design.yaml` in
   `quartz-edition-extras` (BOOK-ONE-TO-QUARTZ §4c). The theme block in
   `quartz.config.yaml` is overridden by it.
-- **The extras pin:** `npx quartz plugin update edition-integrations edit-on-github`,
+- **The extras pin:** `npx quartz plugin update edition-integrations edit-on-github textbook-graph`,
   then commit `quartz.lock.json`. Every book rebuilds with the new builder commit at
   its next `reconcile` (§4b). If `.quartz/plugins` already holds the plugins, delete it
   first: `plugin install` keeps a populated directory without checking the lock.

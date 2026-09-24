@@ -93,7 +93,9 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
 
 test("the shared config: graph on, SPA off, the extras present", () => {
   assert.equal(shared.configuration.enableSPA, false)
-  assert.equal(plugin(shared, "graph").enabled, true)
+  assert.equal(plugin(shared, "textbook-graph").enabled, true)
+  // The platform's fork replaces the community graph; never both.
+  assert.equal(plugin(shared, "graph"), undefined)
   assert.equal(plugin(shared, "edition-integrations").enabled, true)
   assert.equal(plugin(shared, "edit-on-github").options.contentDir, "")
 })
