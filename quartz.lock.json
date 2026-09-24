@@ -115,7 +115,7 @@
         "name": "edition-integrations"
       },
       "resolved": "https://github.com/textbookproject2026-alt/quartz-edition-extras.git",
-      "commit": "ba88e9890dc605312267320dcdbf2dcaef96cf32",
+      "commit": "edc96fce02e7ad0330bda54b9bb2ec0a3dc17a6a",
       "subdir": "plugins/edition-integrations",
       "installedAt": "2026-09-23T12:00:00.000Z"
     },

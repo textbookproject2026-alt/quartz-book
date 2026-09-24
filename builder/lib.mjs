@@ -524,6 +524,9 @@ export function buildCatalog({ facts, pages, commits = [] }) {
     for (const f of c.files) {
       const page = byRelPath.get(f.path)
       if (!page || f.status === "D" || seen.has(page.slug)) continue
+      // community/ is written by the stats workflow, not by authors: a weekly
+      // refresh of the dashboard isn't work on the book.
+      if (page.relPath.startsWith("community/")) continue
       seen.add(page.slug)
       recent.push({
         date: c.date,

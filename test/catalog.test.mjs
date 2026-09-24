@@ -194,6 +194,27 @@ test("recent changes from git: newest first, added vs updated, renames, deletion
       page("chapters/b-renamed.md", "chapters/b-renamed", { title: "B" }),
     ],
   })
+  // The stats workflow's pages never count as recent work.
+  const withCommunity = buildCatalog({
+    facts,
+    commits: [
+      {
+        sha: "x",
+        date: "2026-09-05T10:00:00+02:00",
+        subject: "stats",
+        files: [{ status: "M", path: "community/dashboard.md" }],
+      },
+      ...commits,
+    ],
+    pages: [
+      page("community/dashboard.md", "community/dashboard", { title: "Dashboard" }),
+      page("chapters/a.md", "chapters/a", { title: "A" }),
+    ],
+  })
+  assert.deepEqual(
+    withCommunity.recent.map((r) => r.path),
+    ["/chapters/a"],
+  )
   assert.deepEqual(
     catalog.recent.map((r) => [r.path, r.change, r.date.slice(0, 10)]),
     [
