@@ -107,10 +107,7 @@ async function compare(registry, target, builder) {
 async function plan() {
   const registry = await readRegistry()
   const builder = builderCommit()
-  const targets = reconcileTargets(registry, {
-    slug: process.env.SLUG ?? "",
-    unrecordedBook: process.env.UNRECORDED_BOOK ?? "",
-  })
+  const targets = reconcileTargets(registry, { slug: process.env.SLUG ?? "" })
 
   const rows = []
   const stale = []
@@ -127,14 +124,8 @@ async function plan() {
       note = `**can't compare:** ${err.message.split("\n")[0]}`
       stale.push(t)
     }
-    if (t.unrecorded)
-      console.log(
-        `::warning::${t.slug} is built through unrecorded_book, because its registry entry doesn't name the builder yet. Remove the input once BOOK-ONE-TO-QUARTZ §8 step 17 has recorded its host.`,
-      )
     console.log(`${t.slug} ${t.branch}: ${note}`)
-    rows.push(
-      `| ${t.slug}${t.unrecorded ? " (unrecorded)" : ""} | ${t.branch} | ${markerUrl(t)} | ${note} |`,
-    )
+    rows.push(`| ${t.slug} | ${t.branch} | ${markerUrl(t)} | ${note} |`)
   }
 
   summary(

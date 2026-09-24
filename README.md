@@ -110,11 +110,9 @@ new marker. A run with nothing to do deploys nothing.
   run is red.
 - **Secrets:** `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit, the platform's account
   only) and `CLOUDFLARE_ACCOUNT_ID`. Only the deploy job reads them.
-- **`unrecorded_book` (temporary).** Book one's registry entry can't name the builder
-  until §8 step 17 records its new host, after the cutover. Until then, give its slug,
-  `social-research-methods`, here to build it; its Pages project is named after its
-  slug. Remove the input in the step 17 pull request. Once the entry names the
-  builder, the input is refused.
+- **Which books:** every entry with `site.host.builder: "quartz-book"`, whatever its
+  host kind. On an `obsidian-publish` host (book one until its cutover), the Pages
+  project is a preview only: readers are still served by Publish at `site.domain`.
 
 ## What's here
 
