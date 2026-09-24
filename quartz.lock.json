@@ -276,9 +276,9 @@
         "name": "textbook-graph"
       },
       "resolved": "https://github.com/textbookproject2026-alt/quartz-edition-extras.git",
-      "commit": "381b1104d73ce3ceab29db0291aa7ef5c624af3c",
+      "commit": "a8c353156d868a13d9a5555cec8ae8fbd7dbedd2",
       "subdir": "plugins/textbook-graph",
-      "installedAt": "2026-09-24T15:13:04.374Z"
+      "installedAt": "2026-09-24T15:24:04.201Z"
     },
     "unlisted-pages": {
       "source": "github:quartz-community/unlisted-pages",

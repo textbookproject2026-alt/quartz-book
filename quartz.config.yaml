@@ -309,9 +309,13 @@ plugins:
       subdir: plugins/textbook-graph
       name: textbook-graph
     enabled: true
+    # The local graph is spread wider than upstream's (linkDistance 30,
+    # repelForce 0.5) so its always-on labels have room in the 250px rail.
     options:
       localGraph:
         removeTags: [concept]
+        linkDistance: 50
+        repelForce: 0.8
       globalGraph:
         removeTags: [concept]
     layout:
