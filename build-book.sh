@@ -61,9 +61,5 @@ mv "$WORK/quartz.config.yaml" "$RUN/quartz.config.yaml"
 rm -rf "$OUT"
 (cd "$RUN" && npx quartz build -d "$WORK/content" -o "$OUT")
 
-# PROOF ONLY (§8 step 9): publish a file from outside the allowlist, so the
-# build is refused and nothing deploys. Revert this commit straight after.
-echo "proof" > "$OUT/configure.mjs"
-
 # 3. The builder's additions, and the check that nothing else was published.
 node "$BUILDER/builder/finish.mjs" "$WORK" "$OUT"
