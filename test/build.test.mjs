@@ -36,11 +36,11 @@ function fixtureBook(slug, change = () => {}) {
   return { dir, head: git("rev-parse", "HEAD") }
 }
 
-function build(bookDir, branch) {
+function build(bookDir, branch, ...flags) {
   const out = join(scratch, `out-${++n}`)
   const run = spawnSync(
     join(ROOT, "build-book.sh"),
-    [bookDir, "--branch", branch, "--out", out, "--registry", REGISTRY],
+    [bookDir, "--branch", branch, ...flags, "--out", out, "--registry", REGISTRY],
     {
       encoding: "utf8",
     },
@@ -189,6 +189,20 @@ test("the fixture on its live branch", async (t) => {
     })
     assert.equal(clean.status, 0, clean.stderr)
   })
+})
+
+test("a design preview builds the live branch as it is, but noindex (§4b)", () => {
+  const book = fixtureBook("design-fixture")
+  const live = build(book.dir, "main")
+  const preview = build(book.dir, "main", "--preview")
+  assert.equal(preview.status, 0, preview.log)
+  assert.equal(live.has("_headers"), false)
+  assert.equal(preview.read("_headers"), "/*\n  X-Robots-Tag: noindex\n")
+  // The same marker as the live build: the preview is that build, beside it.
+  assert.equal(preview.read(".well-known/textbook.json"), live.read(".well-known/textbook.json"))
+  assert.equal(JSON.parse(preview.read(".well-known/textbook.json")).book_commit, book.head)
+  assert.match(preview.read("chapters/chapter-01.html"), /\/edit\/main\/chapters\/chapter-01\.md"/)
+  assert.equal(preview.read("chapters/chapter-01.html"), live.read("chapters/chapter-01.html"))
 })
 
 test("a drafts build is a noindex preview, and its links follow the branch", () => {

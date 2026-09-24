@@ -44,7 +44,7 @@ export function findBook(registry, slug) {
  * Every per-book value the build uses, from the registry alone. This replaces
  * configure.mjs and templates/publish.js for the site (§0).
  */
-export function bookOptions(registry, book, branch) {
+export function bookOptions(registry, book, branch, { preview = false } = {}) {
   if (!branch) refuse("no branch given. Say which branch this build is for.")
   const suggestEnabled = book.suggest_edit?.enabled === true
   const endpoint = registry.platform?.suggest_edit_endpoint ?? ""
@@ -59,8 +59,9 @@ export function bookOptions(registry, book, branch) {
     repo: book.content.repo,
     branch,
     liveBranch: book.content.live_branch,
-    // D13: every branch but the live one is a preview: public, but noindex.
-    noindex: branch !== book.content.live_branch,
+    // D13: every branch but the live one is a preview: public, but noindex. So
+    // is a design preview of the live branch (§4b), deployed beside it.
+    noindex: preview || branch !== book.content.live_branch,
     // Shown only for books with suggest-edit on. Elsewhere the function would
     // answer 403, so the button stays hidden (edit-on-github's "" default).
     suggestEndpoint: suggestEnabled ? endpoint : "",
@@ -399,6 +400,116 @@ export function markerDifference(served, want) {
   const w = marker(want)
   const fields = Object.keys(w).filter((k) => served[k] !== w[k])
   return fields.length ? `${fields.join(", ")} changed` : "current"
+}
+
+// ---------------------------------------------------------------------------
+// The design preview gate (§4b, §8 step 11): the bot's pin pull request, the
+// preview of every builder book it gets, and the `stable` tag that merging moves.
+
+/** The tag `reconcile` builds from. A green CI run on main moves it there. */
+export const STABLE_TAG = "stable"
+
+/** The platform's plugins, quartz-edition-extras, as quartz.lock.json names their repo. */
+export const EXTRAS_REPO = "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
+
+const isSha = (s) => typeof s === "string" && /^[0-9a-f]{40}$/.test(s)
+
+/** Every extras plugin in the lock, with its pinned commit. */
+export function extrasPins(lock) {
+  const pins = Object.entries(lock?.plugins ?? {})
+    .filter(([, p]) => p.resolved === EXTRAS_REPO)
+    .map(([name, p]) => ({ name, commit: p.commit }))
+  if (pins.length === 0) throw new Error(`quartz.lock.json pins nothing from ${EXTRAS_REPO}.`)
+  return pins
+}
+
+/**
+ * The lock with every extras plugin pinned at `commit`, and what moved. The
+ * plugins move together: they come from one repo, and a book is built with one
+ * extras commit. Nothing else in the lock changes, not even installedAt, so the
+ * pull request's diff is the commits alone.
+ */
+export function bumpExtras(lock, commit) {
+  if (!isSha(commit)) throw new Error(`"${commit}" is not a full commit hash.`)
+  const changed = extrasPins(lock).filter((p) => p.commit !== commit)
+  const plugins = { ...lock.plugins }
+  for (const { name } of changed) plugins[name] = { ...plugins[name], commit }
+  return {
+    lock: { ...lock, plugins },
+    changed: changed.map((p) => ({ name: p.name, from: p.commit, to: commit })),
+  }
+}
+
+/** The bot's branch for a bump to `commit`: one per extras commit, ever. */
+export const bumpBranch = (commit) => `bot/extras-${commit.slice(0, 7)}`
+
+/** Only branches of this shape are ever deployed as design previews. */
+export const PREVIEW_BRANCH = /^design-[1-9][0-9]*$/
+
+/** The Pages branch a pull request's previews go to. */
+export function previewBranch(pr) {
+  const branch = `design-${String(pr).trim()}`
+  if (!PREVIEW_BRANCH.test(branch)) throw new Error(`"${pr}" is not a pull request number.`)
+  return branch
+}
+
+/**
+ * One preview per book on the builder: its live branch, built by the pull
+ * request's builder commit, deployed to its Pages project on `design-<pr>`
+ * (§4b). The same books reconcile looks after, each once.
+ */
+export function previewTargets(registry, pr) {
+  const preview = previewBranch(pr)
+  return reconcileTargets(registry)
+    .filter((t) => t.live)
+    .map((t) => {
+      const book = registry.books.find((b) => b.slug === t.slug)
+      if ([book.content.live_branch, book.content.drafts_branch].includes(preview))
+        throw new Error(
+          `book "${t.slug}" has a branch named ${preview}, so its design preview would replace that branch's deployment.`,
+        )
+      return {
+        slug: t.slug,
+        repo: t.repo,
+        project: t.project,
+        branch: t.branch,
+        preview,
+        url: `https://${branchAlias(preview)}.${t.project}.pages.dev/`,
+      }
+    })
+}
+
+/** Marks the one comment the preview keeps up to date on a pull request. */
+export const PREVIEW_COMMENT_TAG = "<!-- quartz-book design preview -->"
+
+/**
+ * The comment on the pull request: a row per book, saying whether its preview
+ * serves this builder commit. `served[i]` is the marker served at targets[i]'s
+ * preview, or null.
+ */
+export function previewComment({ pr, head, targets, served }) {
+  const short = (sha) => `\`${String(sha).slice(0, 7)}\``
+  const good = (t, m) => !!m && m.slug === t.slug && m.builder_commit === head
+  const rows = targets.map((t, i) => {
+    const m = served[i]
+    const preview = good(t, m)
+      ? `[${t.url.slice("https://".length, -1)}](${t.url})`
+      : `**not ready**: ${m ? `serves builder ${short(m.builder_commit)}` : "serves no marker"}`
+    const content = m?.book_commit ? `${t.branch} at ${short(m.book_commit)}` : t.branch
+    return `| ${t.slug} | ${preview} | ${content} | ${good(t, m) ? "✅" : "❌"} |`
+  })
+  const ready = targets.filter((t, i) => good(t, served[i])).length
+  return [
+    PREVIEW_COMMENT_TAG,
+    `### Design preview: ${ready} of ${targets.length} books`,
+    "",
+    `Each book on the builder, its live branch built by this pull request's builder commit ${short(head)}, on the Pages branch \`${previewBranch(pr)}\` (noindex). No book's production changes until this merges; then \`stable\` moves and \`reconcile\` rebuilds every book.`,
+    "",
+    "| Book | Preview | Content | |",
+    "|---|---|---|---|",
+    ...rows,
+    "",
+  ].join("\n")
 }
 
 // ---------------------------------------------------------------------------

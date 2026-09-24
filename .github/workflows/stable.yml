@@ -1,0 +1,77 @@
+name: stable
+
+# Moves the `stable` tag, the builder commit every book is built with
+# (BOOK-ONE-TO-QUARTZ §4b, §8 step 11), then starts `reconcile` so every book
+# rebuilds with it.
+#
+#   After a merge   when `ci` passes on a push to main, stable moves to that
+#                   commit. Only forward: a CI run that finishes late, for an
+#                   older commit, leaves it alone.
+#   Rollback        Actions → stable → Run workflow, branch main, `commit` the
+#                   commit to go back to (any commit on main). The rollback
+#                   holds until the next merge to main passes CI, so revert or
+#                   fix the bad change on main before merging anything else.
+
+run-name: >-
+  stable: ${{ inputs.commit && format('to {0}, by hand', inputs.commit) || format('after ci on {0}', github.event.workflow_run.head_sha) }}
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The full commit on main to move stable to.
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: stable
+  cancel-in-progress: false
+
+jobs:
+  move:
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Move stable
+        id: move
+        env:
+          TO: ${{ inputs.commit || github.event.workflow_run.head_sha }}
+          BY_HAND: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          [[ "$TO" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::\"$TO\" is not a full commit hash."; exit 1; }
+          git merge-base --is-ancestor "$TO" origin/main 2>/dev/null \
+            || { echo "::error::$TO is not on main."; exit 1; }
+          git fetch --quiet --force origin 'refs/tags/stable:refs/tags/stable' 2>/dev/null || true
+          if from="$(git rev-parse -q --verify 'refs/tags/stable^{commit}')"; then
+            if [ "$from" = "$TO" ]; then
+              echo "stable is already at $TO."; echo "moved=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            if [ "$BY_HAND" != true ] && ! git merge-base --is-ancestor "$from" "$TO"; then
+              echo "::notice::stable is at $from, which isn't behind $TO (a later run moved it), so it stays."
+              echo "moved=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+          git push --quiet --force origin "$TO:refs/tags/stable"
+          echo "stable: ${from:-nothing} → $TO"
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild every book with it
+        if: steps.move.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run reconcile.yml --ref main -f woken_by=stable

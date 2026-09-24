@@ -26,6 +26,10 @@ on:
       live:
         type: boolean
         required: true
+      # The builder commit to build with: stable, resolved once by reconcile.yml.
+      builder:
+        type: string
+        required: true
     secrets:
       # Not required, so that a run from a branch other than main, which never
       # deploys, works in a fork or before the secrets exist.
@@ -42,6 +46,7 @@ env:
   BRANCH: ${{ inputs.branch }}
   PROJECT: ${{ inputs.project }}
   LIVE: ${{ inputs.live }}
+  BUILDER: ${{ inputs.builder }}
 
 jobs:
   build:
@@ -55,6 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.builder }}
           persist-credentials: false
 
       # No npm cache here, and the plugin cache below is restore-only: nothing
@@ -111,7 +117,7 @@ jobs:
           node -e '
             const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
             const want = { slug: process.env.SLUG, branch: process.env.BRANCH,
-                           book_commit: process.env.COMMIT, builder_commit: process.env.GITHUB_SHA }
+                           book_commit: process.env.COMMIT, builder_commit: process.env.BUILDER }
             for (const [k, v] of Object.entries(want))
               if (m[k] !== v) { console.error(`::error::the marker has ${k} ${m[k]}, not ${v}.`); process.exit(1) }
           ' "$RUNNER_TEMP/site/.well-known/textbook.json"
@@ -170,7 +176,7 @@ jobs:
           --project-name "$PROJECT"
           --branch "$BRANCH"
           --commit-hash "$COMMIT"
-          --commit-message "$SLUG $BRANCH at ${COMMIT:0:7}, builder ${GITHUB_SHA:0:7}"
+          --commit-message "$SLUG $BRANCH at ${COMMIT:0:7}, builder ${BUILDER:0:7}"
           --commit-dirty=true
 
       # Checking here makes a deploy that went somewhere else (a production

@@ -9,16 +9,15 @@ private, no book rebuilds, and the last deployment of each keeps serving. Treat 
 production infrastructure.
 
 - **The plan:** `design/BOOK-ONE-TO-QUARTZ.md` in `textbookproject2026-alt/textbook-registry`.
-  This repo is §8 steps 8 (the build) and 9 (`reconcile`).
+  This repo is §8 steps 8 (the build), 9 (`reconcile`) and 11 (the design preview gate).
 - **The registry:** `registry.json` in the same repo. The builder reads it from `main` at
   every build.
 - **The platform's plugins:** `textbookproject2026-alt/quartz-edition-extras`, pinned in
   `quartz.lock.json`.
 - **Service inventory:** `docs/INFRASTRUCTURE.md` in `textbook-registry`.
 
-**What it doesn't do yet.** The `build-nudge` Worker, which starts `reconcile` on a
-book's push and every 15 minutes, is §8 step 10. Until then `reconcile` runs only by
-hand.
+**What starts it.** The `build-nudge` Worker (§8 step 10) starts `reconcile` on a
+book's push and every 15 minutes. `reconcile` also runs by hand, below.
 
 ---
 
@@ -107,8 +106,9 @@ new marker. A run with nothing to do deploys nothing.
   platform's Cloudflare account. The live branch is the project's production branch,
   on `<project>.pages.dev`; `drafts` is on `drafts.<project>.pages.dev`, with
   `X-Robots-Tag: noindex`.
-- **Only a run from `main` deploys.** From any other branch it builds and checks, and
-  stops there.
+- **Only a run from `main` deploys**, and it builds with the builder at the **`stable`
+  tag**, not at `main`'s head (below). From any other branch it builds with that
+  branch's own commit, checks, and stops there.
 - **Concurrency:** one build per book and branch at a time, never cancelled.
 - **A failed build** deploys nothing: the previous deployment keeps serving, and the
   run is red.
@@ -118,24 +118,59 @@ new marker. A run with nothing to do deploys nothing.
   host kind. On an `obsidian-publish` host (book one until its cutover), the Pages
   project is a preview only: readers are still served by Publish at `site.domain`.
 
+## The design preview gate and `stable`
+
+A change to the builder, or to the extras pin, reaches every book at once (§4b). So
+it is previewed on every book before it reaches any.
+
+- **The bot pull request.** On the Worker's 15-minute tick, `reconcile` asks whether
+  `quartz-edition-extras`' `main` is ahead of the pin in `quartz.lock.json`. If it is,
+  and no pull request for that extras commit was ever opened, it starts
+  `bump-extras.yml`. That moves every extras plugin to the one commit on the branch
+  `bot/extras-<commit>`, opens a pull request, and starts its preview and CI. Closing
+  the pull request unmerged keeps the old pin; the bot won't reopen it. By hand:
+  Actions → **bump-extras** → Run workflow, branch `main`, `commit` empty for extras'
+  `main`.
+- **The preview.** `design-preview.yml` runs on every pull request into `main` (and is
+  started by the bot for its own). It builds each book on the builder, from the book's
+  live branch, with the pull request's builder commit, as a `noindex` preview
+  (`build-book.sh --preview`), and uploads it to the book's Pages project on the
+  branch **`design-<pr>`**: `https://design-<pr>.<project>.pages.dev/`. Then it posts
+  one comment on the pull request with a link per book, and updates it on each push.
+  It never deploys any other branch name, so no book's production changes. A pull
+  request from a fork builds but isn't deployed or commented on.
+- **`stable`.** The tag `reconcile` builds from. When `ci` passes on a push to `main`,
+  `stable.yml` moves `stable` to that commit and starts `reconcile` (run name
+  `reconcile: stable, every book`), so every book's marker names the new builder
+  commit within that one run. It only moves forward on its own.
+- **Rollback.** Actions → **stable** → Run workflow, branch `main`, `commit` the commit
+  to go back to. `reconcile` rebuilds every book with it. It holds until the next merge
+  to `main` passes CI, so revert or fix the bad change on `main` first.
+- **If `stable` is missing,** every `reconcile` run from `main` stops at its first step
+  and says so. Run **stable** by hand with `main`'s head.
+- **Needs** the repository setting _Allow GitHub Actions to create and approve pull
+  requests_ (Settings → Actions → General), for the bot's pull request.
+
 ## What's here
 
-| Path                                                               | What                                                                                                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `quartz/`, `package.json`, `package-lock.json`, `tsconfig.json`, … | Quartz v5, upstream `jackyzha0/quartz` at `9cf87ff` (the `v5` branch). The same Quartz as `textbook-edition-template`, unmodified           |
-| `quartz.config.yaml`                                               | The one shared config. Graph on (D11), SPA off, dark mode off (D12)                                                                         |
-| `quartz.lock.json`                                                 | Every plugin's pinned commit, including the two extras plugins (§4b)                                                                        |
-| `build-book.sh`                                                    | The build, above                                                                                                                            |
-| `builder/lib.mjs`                                                  | Every decision the build makes, as pure functions                                                                                           |
-| `builder/prepare.mjs`, `builder/finish.mjs`                        | The steps before and after Quartz                                                                                                           |
-| `builder/check-output.mjs`                                         | The allowlist check on its own                                                                                                              |
-| `builder/reconcile.mjs`                                            | `reconcile`'s comparison: which books and branches are behind their served marker                                                           |
-| `builder/pages/how-to-comment.md`                                  | The reader page every book gets, from book one's `docs/how-to-comment.md`                                                                   |
-| `fixtures/book/`                                                   | A small book used by the tests. `chapters/QA.md` is the design fixture, moved from book one (§4c)                                           |
-| `fixtures/registry.json`                                           | Three fixture books: suggest on, suggest off, and retired                                                                                   |
-| `test/`                                                            | `lib.test.mjs` and `catalog.test.mjs` (no Quartz), `build.test.mjs` (builds the fixture), `check-book-one.mjs` (checks a build of book one) |
-| `.github/workflows/ci.yml`                                         | Runs the tests, then builds book one from its current `main` and checks it. Deploys nothing                                                 |
-| `.github/workflows/reconcile.yml`, `reconcile-book.yml`            | Builds and deploys the books that are behind (above)                                                                                        |
+| Path                                                                    | What                                                                                                                                                            |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quartz/`, `package.json`, `package-lock.json`, `tsconfig.json`, …      | Quartz v5, upstream `jackyzha0/quartz` at `9cf87ff` (the `v5` branch). The same Quartz as `textbook-edition-template`, unmodified                               |
+| `quartz.config.yaml`                                                    | The one shared config. Graph on (D11), SPA off, dark mode off (D12)                                                                                             |
+| `quartz.lock.json`                                                      | Every plugin's pinned commit, including the two extras plugins (§4b)                                                                                            |
+| `build-book.sh`                                                         | The build, above                                                                                                                                                |
+| `builder/lib.mjs`                                                       | Every decision the build makes, as pure functions                                                                                                               |
+| `builder/prepare.mjs`, `builder/finish.mjs`                             | The steps before and after Quartz                                                                                                                               |
+| `builder/check-output.mjs`                                              | The allowlist check on its own                                                                                                                                  |
+| `builder/reconcile.mjs`                                                 | `reconcile`'s comparison: which books and branches are behind their served marker                                                                               |
+| `builder/extras.mjs`, `builder/preview.mjs`                             | The extras pin bot's decisions, and the design preview's books and comment                                                                                      |
+| `builder/pages/how-to-comment.md`                                       | The reader page every book gets, from book one's `docs/how-to-comment.md`                                                                                       |
+| `fixtures/book/`                                                        | A small book used by the tests. `chapters/QA.md` is the design fixture, moved from book one (§4c)                                                               |
+| `fixtures/registry.json`                                                | Three fixture books: suggest on, suggest off, and retired                                                                                                       |
+| `test/`                                                                 | `lib.test.mjs`, `catalog.test.mjs` and `preview.test.mjs` (no Quartz), `build.test.mjs` (builds the fixture), `check-book-one.mjs` (checks a build of book one) |
+| `.github/workflows/ci.yml`                                              | Runs the tests, then builds book one from its current `main` and checks it. Deploys nothing                                                                     |
+| `.github/workflows/reconcile.yml`, `reconcile-book.yml`                 | Builds and deploys the books that are behind (above)                                                                                                            |
+| `.github/workflows/bump-extras.yml`, `design-preview.yml`, `stable.yml` | The design preview gate (above)                                                                                                                                 |
 
 ## The catalog
 
@@ -163,7 +198,7 @@ After a run that deployed a live branch, `reconcile` fires the portal's deploy h
 ## Tests
 
 ```
-node --test test/lib.test.mjs test/catalog.test.mjs test/build.test.mjs
+node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/build.test.mjs
 ./build-book.sh ../book-one --branch main --out /tmp/book-one-site
 node test/check-book-one.mjs /tmp/book-one-site ../book-one
 ```
@@ -173,10 +208,13 @@ node test/check-book-one.mjs /tmp/book-one-site ../book-one
 - **Design values** (colours, fonts, sizes, print): not here. Edit `design.yaml` in
   `quartz-edition-extras` (BOOK-ONE-TO-QUARTZ §4c). The theme block in
   `quartz.config.yaml` is overridden by it.
-- **The extras pin:** `npx quartz plugin update edition-integrations edit-on-github textbook-graph`,
-  then commit `quartz.lock.json`. Every book rebuilds with the new builder commit at
-  its next `reconcile` (§4b). If `.quartz/plugins` already holds the plugins, delete it
-  first: `plugin install` keeps a populated directory without checking the lock.
+- **The extras pin:** the bot does it (above), and every book rebuilds once its pull
+  request merges and `stable` moves. To pin a particular extras commit, run
+  **bump-extras** by hand with that commit. Locally, after a pin change, delete
+  `.quartz/plugins` before `npx quartz plugin install`: it keeps a populated directory
+  without checking the lock.
+- **Anything else here** goes through a pull request too: its preview shows every book
+  before `stable` moves.
 - **Quartz itself:** merge from `upstream` (`jackyzha0/quartz`, branch `v5`), as the
   edition template does.
 
