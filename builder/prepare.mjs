@@ -13,12 +13,15 @@ import YAML from "yaml"
 import {
   ALLOWLIST,
   BuildRefused,
+  GIT_LOG_FORMAT,
+  HISTORY_COMMITS,
   HOW_TO_COMMENT,
   REGISTRY_URL,
   bookOptions,
   findBook,
   howToCommentClash,
   ignorePatternsFor,
+  parseGitLog,
   registryDigest,
   renderConfig,
 } from "./lib.mjs"
@@ -86,6 +89,27 @@ try {
     status: entry.status,
   }
   writeFileSync(join(workDir, "facts.json"), JSON.stringify(facts, null, 2) + "\n")
+
+  // The recent history of the published files, for the catalog's recent
+  // changes. A shallow checkout gives what it has; its boundary commits are
+  // dropped because they show every file as added.
+  const log = git(
+    book,
+    "log",
+    `-n${HISTORY_COMMITS}`,
+    "-M",
+    "--name-status",
+    "-z",
+    `--format=${GIT_LOG_FORMAT}`,
+    "--",
+    ...ALLOWLIST,
+  )
+  const shallowPath = resolve(book, git(book, "rev-parse", "--git-path", "shallow"))
+  const shallow = existsSync(shallowPath)
+    ? readFileSync(shallowPath, "utf8").split(/\s+/).filter(Boolean)
+    : []
+  const commits = parseGitLog(log, shallow)
+  writeFileSync(join(workDir, "history.json"), JSON.stringify(commits) + "\n")
   console.log(
     `prepare: ${facts.slug} @ ${facts.branch} (${facts.bookCommit.slice(0, 7)}), ${facts.noindex ? "preview, noindex" : "live branch"}, suggest ${facts.suggestEndpoint ? "on" : "off"}`,
   )

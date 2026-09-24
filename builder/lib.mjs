@@ -279,7 +279,13 @@ const QUARTZ_GENERATED = [
 ]
 
 /** What the builder adds. */
-const BUILDER_GENERATED = [`${HOW_TO_COMMENT}.html`, "_redirects", "_headers", MARKER_PATH]
+const BUILDER_GENERATED = [
+  `${HOW_TO_COMMENT}.html`,
+  "_redirects",
+  "_headers",
+  MARKER_PATH,
+  ".well-known/textbook-catalog.json",
+]
 
 /**
  * Whether an output path may be published: it comes from an allowlisted
@@ -393,4 +399,151 @@ export function markerDifference(served, want) {
   const w = marker(want)
   const fields = Object.keys(w).filter((k) => served[k] !== w[k])
   return fields.length ? `${fields.join(", ")} changed` : "current"
+}
+
+// ---------------------------------------------------------------------------
+// The book's catalog (platform portal): what the book holds, for the portal to
+// read at its own build time. Books, pages, tags, concept pages, authors and
+// recent changes. Built from Quartz's content index, the pages' frontmatter
+// and the checkout's history, all read by prepare.mjs and finish.mjs; the
+// functions here only shape it. No timestamp of its own, like the marker: the
+// same inputs give the same file.
+
+export const CATALOG_PATH = ".well-known/textbook-catalog.json"
+export const CATALOG_VERSION = 1
+
+/** How many recent page changes the catalog carries. The portal shows fewer. */
+export const RECENT_LIMIT = 25
+
+/** How many commits prepare.mjs reads for them. */
+export const HISTORY_COMMITS = 60
+
+/** An Obsidian tag as the portal compares it: no "#", lower case, trimmed. */
+export const normaliseTag = (tag) =>
+  String(tag ?? "")
+    .trim()
+    .replace(/^#+/, "")
+    .toLowerCase()
+
+const asList = (value) =>
+  (Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [])
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean)
+
+/** A page's authors from its frontmatter: `authors` (a list, or "A, B") or `author`. */
+export const authorsOf = (frontmatter = {}) => asList(frontmatter.authors ?? frontmatter.author)
+
+/** Every tag a page carries: frontmatter `tags` and `tag`, plus what Quartz found inline. */
+export const tagsOf = (frontmatter = {}, indexed = []) => {
+  const all = [...asList(frontmatter.tags), ...asList(frontmatter.tag), ...asList(indexed)]
+  return [...new Set(all.map(normaliseTag).filter(Boolean))].sort()
+}
+
+/** Folders whose pages are concept pages without saying so (book one's chapters/Definitions/). */
+const CONCEPT_FOLDERS = new Set(["definitions", "concepts", "concept"])
+
+/**
+ * Whether a page is a concept page. Obsidian has no such thing, so the book
+ * says it one of three ways: `type: concept` in the frontmatter, the tag
+ * `concept`, or living in a Definitions/ or Concepts/ folder. `concept: false`
+ * in the frontmatter overrides all three.
+ */
+export function isConceptPage(relPath, frontmatter = {}, tags = []) {
+  if (frontmatter.concept === false) return false
+  if (frontmatter.concept === true) return true
+  if (String(frontmatter.type ?? "").toLowerCase() === "concept") return true
+  if (tags.includes("concept")) return true
+  const folders = relPath.split("/").slice(0, -1)
+  return folders.some((f) => CONCEPT_FOLDERS.has(f.toLowerCase()))
+}
+
+/**
+ * The commits prepare.mjs reads: `git log --name-status -z` with the format
+ * below. Commits named in the shallow file are left out: a shallow clone's
+ * boundary commit shows every file as added.
+ */
+export const GIT_LOG_FORMAT = "%x1e%H%x1f%cI%x1f%an%x1f%s"
+
+export function parseGitLog(text, shallow = []) {
+  const skip = new Set(shallow)
+  const commits = []
+  for (const record of text.split("\x1e").slice(1)) {
+    const [header, ...rest] = record.split("\x00")
+    const [sha, date, author, subject] = header.replace(/\n+$/, "").split("\x1f")
+    if (!sha || skip.has(sha)) continue
+    // -z: status and path(s) are separate NUL-terminated fields, the first one
+    // prefixed by the newline after the header.
+    const fields = rest.map((f) => f.replace(/^\n/, "")).filter((f) => f !== "")
+    const files = []
+    for (let i = 0; i < fields.length; ) {
+      const status = fields[i++]
+      if (/^[RC]/.test(status)) {
+        i++ // the old path
+        files.push({ status: "M", path: fields[i++] })
+      } else files.push({ status: status[0], path: fields[i++] })
+    }
+    commits.push({ sha, date, author, subject, files })
+  }
+  return commits
+}
+
+/**
+ * The catalog. `pages` are the book's own pages: { relPath, slug, title,
+ * frontmatter, indexedTags, links (slugs) }. `commits` are parseGitLog's,
+ * newest first.
+ */
+export function buildCatalog({ facts, pages, commits = [] }) {
+  const bySlug = new Map(pages.map((p) => [p.slug, p]))
+  const byRelPath = new Map(pages.map((p) => [p.relPath, p]))
+  const index = pages.find((p) => p.slug === "index")
+
+  const out = [...pages]
+    .sort((a, b) => a.relPath.localeCompare(b.relPath))
+    .map((p) => {
+      const tags = tagsOf(p.frontmatter, p.indexedTags)
+      return {
+        path: slugUrl(p.slug),
+        // The source file, so a reader of the catalog can work out the page's
+        // address on a host that isn't Quartz (book one on Publish, D14).
+        source: p.relPath,
+        title: String(p.title ?? "").trim() || p.slug,
+        tags,
+        concept: p.slug !== "index" && isConceptPage(p.relPath, p.frontmatter, tags),
+        authors: authorsOf(p.frontmatter),
+        links: [...new Set((p.links ?? []).filter((s) => s !== p.slug && bySlug.has(s)))]
+          .map(slugUrl)
+          .sort(),
+      }
+    })
+
+  // Recent changes: one entry per page per commit, newest first. Deleted pages
+  // aren't there to visit, and a page changed twice shows once, at its latest.
+  const recent = []
+  const seen = new Set()
+  for (const c of commits) {
+    for (const f of c.files) {
+      const page = byRelPath.get(f.path)
+      if (!page || f.status === "D" || seen.has(page.slug)) continue
+      seen.add(page.slug)
+      recent.push({
+        date: c.date,
+        path: slugUrl(page.slug),
+        title: out.find((o) => o.path === slugUrl(page.slug)).title,
+        change: f.status === "A" ? "added" : "updated",
+        commit: c.sha,
+        summary: c.subject,
+      })
+    }
+    if (recent.length >= RECENT_LIMIT) break
+  }
+
+  const bookAuthors = authorsOf(index?.frontmatter)
+  return {
+    version: CATALOG_VERSION,
+    slug: facts.slug,
+    book_commit: facts.bookCommit,
+    authors: bookAuthors.length ? bookAuthors : [...new Set(out.flatMap((p) => p.authors))].sort(),
+    pages: out,
+    recent: recent.slice(0, RECENT_LIMIT),
+  }
 }

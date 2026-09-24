@@ -114,6 +114,17 @@ check("the marker names the commit that was built", () => {
   assert.equal(m.book_commit, head)
 })
 
+check("the catalog lists chapter 3 and its six concept pages", () => {
+  const c = JSON.parse(read(".well-known/textbook-catalog.json"))
+  assert.equal(c.slug, "social-research-methods")
+  const ch3 = c.pages.find((p) => p.path === "/chapters/chapter-03")
+  assert.ok(ch3, "chapter 3 is missing from the catalog")
+  const concepts = c.pages.filter((p) => p.concept)
+  assert.equal(concepts.length, 6, `concepts: ${concepts.map((p) => p.title)}`)
+  for (const p of concepts)
+    assert.ok(ch3.links.includes(p.path), `chapter 3 doesn't link ${p.path}`)
+})
+
 check("main is indexable, and every page is canonical on the book's domain", () => {
   assert.ok(!existsSync(join(out, "_headers")))
   assert.match(

@@ -151,6 +151,21 @@ test("the fixture on its live branch", async (t) => {
     assert.match(m.registry_digest, /^sha256:[0-9a-f]{64}$/)
     assert.match(m.builder_commit, /^[0-9a-f]{40}(-dirty)?$/)
   })
+  await t.test("the catalog: the book's pages, from Quartz's own index", () => {
+    const c = JSON.parse(b.read(".well-known/textbook-catalog.json"))
+    assert.equal(c.version, 1)
+    assert.equal(c.slug, "design-fixture")
+    assert.equal(c.book_commit, book.head)
+    const paths = c.pages.map((p) => p.path)
+    assert.ok(paths.includes("/"))
+    assert.ok(paths.includes("/chapters/chapter-01"))
+    // The builder's page isn't the book's.
+    assert.ok(!paths.includes("/how-to-comment"))
+    // chapters/Definitions/ is a concept folder.
+    const concepts = c.pages.filter((p) => p.concept).map((p) => p.title)
+    assert.ok(concepts.includes("The Three Domains"), `concepts: ${concepts}`)
+    assert.ok(Array.isArray(c.recent))
+  })
   await t.test("the pinned extras are in: same-page citations work", () => {
     const html = b.read("chapters/chapter-01.html")
     assert.doesNotMatch(html, /href="#%5E/)

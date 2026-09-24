@@ -82,6 +82,8 @@ jobs:
         if: steps.check.outputs.build == 'true'
         run: npx quartz plugin install
 
+      # 60 commits deep, not 1: the catalog's recent changes read the history
+      # (builder/prepare.mjs, HISTORY_COMMITS). Book repos are text; it's cheap.
       - name: Check out the book at that commit, anonymously
         if: steps.check.outputs.build == 'true'
         env:
@@ -90,7 +92,7 @@ jobs:
         run: |
           git init --quiet "$RUNNER_TEMP/book"
           cd "$RUNNER_TEMP/book"
-          git -c credential.helper= fetch --quiet --depth 1 "https://github.com/$REPO.git" "$COMMIT"
+          git -c credential.helper= fetch --quiet --depth 60 "https://github.com/$REPO.git" "$COMMIT"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build

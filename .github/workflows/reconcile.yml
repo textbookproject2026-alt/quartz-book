@@ -84,3 +84,27 @@ jobs:
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # The portal lists each book's pages, tags and recent changes from the book's
+  # catalog, read when the portal builds. After a run that built a live branch,
+  # ask the portal to rebuild. Optional: without the secret this says so and
+  # stops; the portal catches up at its next build either way.
+  portal:
+    needs: [plan, book]
+    if: >-
+      always() && github.ref == 'refs/heads/main'
+      && contains(needs.plan.outputs.targets, '"live":true')
+      && needs.book.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Fire the portal's deploy hook
+        env:
+          HOOK: ${{ secrets.PORTAL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::PORTAL_DEPLOY_HOOK is not set in quartz-book, so the portal was not asked to rebuild."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" -o /dev/null && echo "Portal rebuild requested."

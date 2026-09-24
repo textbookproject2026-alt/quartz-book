@@ -298,6 +298,9 @@ plugins:
       siteDomain: "" # SET PER BOOK: `site.domain`; Plausible counts only there
       tagHelper: true
       annotationBadge: true
+      # Paragraph numbers in the margin, with a reader's toggle (every page
+      # but the home page; frontmatter `paragraphNumbers: false` opts a page out).
+      paragraphNumbers: true
       # Inert by decision (no Hypothes.is Publisher tier). Leave empty.
       hypothesisGroupId: ""
 

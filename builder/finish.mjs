@@ -4,9 +4,12 @@
 //   node builder/finish.mjs <work dir> <out dir>
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, sep } from "node:path"
+import YAML from "yaml"
 import {
+  CATALOG_PATH,
   HOW_TO_COMMENT,
   MARKER_PATH,
+  buildCatalog,
   NOINDEX_HEADERS,
   addCanonical,
   htmlUrl,
@@ -51,6 +54,36 @@ write("_redirects", redirectsFile(pages, facts))
 if (facts.noindex) write("_headers", NOINDEX_HEADERS)
 write(MARKER_PATH, JSON.stringify(marker(facts), null, 2) + "\n")
 
+// The catalog the portal reads (lib.mjs, "The book's catalog"). Frontmatter
+// is read from the staged source; a page whose frontmatter doesn't parse is
+// still listed, with none.
+const frontmatterOf = (relPath) => {
+  const src = readFileSync(join(workDir, "content", relPath), "utf8")
+  const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(src.trimStart())
+  if (!m) return {}
+  try {
+    const fm = YAML.parse(m[1])
+    return fm && typeof fm === "object" && !Array.isArray(fm) ? fm : {}
+  } catch {
+    return {}
+  }
+}
+const historyFile = join(workDir, "history.json")
+const commits = existsSync(historyFile) ? JSON.parse(readFileSync(historyFile, "utf8")) : []
+const catalog = buildCatalog({
+  facts,
+  commits,
+  pages: pages.map(({ relPath, slug }) => ({
+    relPath,
+    slug,
+    title: index[slug].title,
+    frontmatter: frontmatterOf(relPath),
+    indexedTags: index[slug].tags ?? [],
+    links: index[slug].links ?? [],
+  })),
+})
+write(CATALOG_PATH, JSON.stringify(catalog, null, 2) + "\n")
+
 // The allowlist, checked on what was actually produced (§8 step 8): a file from
 // outside it fails the build rather than going live.
 const files = walkFiles(outDir).map(rel)
@@ -59,4 +92,6 @@ if (stray.length) {
   console.error(`build-book: refused: ${strayMessage(stray)}`)
   process.exit(2)
 }
-console.log(`finish: ${files.length} files, ${pages.length} pages; marker at /${MARKER_PATH}`)
+console.log(
+  `finish: ${files.length} files, ${pages.length} pages; marker at /${MARKER_PATH}, catalog at /${CATALOG_PATH} (${catalog.recent.length} recent changes)`,
+)
