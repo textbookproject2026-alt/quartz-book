@@ -7,11 +7,17 @@ import {
   BuildRefused,
   addCanonical,
   bookOptions,
+  branchAlias,
   findBook,
   howToCommentClash,
   ignorePatternsFor,
+  marker,
+  markerCurrent,
+  markerDifference,
+  markerUrl,
   outputAllowed,
   publishUrl,
+  reconcileTargets,
   redirectsFile,
   registryDigest,
   renderConfig,
@@ -267,4 +273,124 @@ test("output: book-repo machinery fails the allowlist, generated files pass", ()
   ])
     assert.equal(outputAllowed(ok), true, ok)
   assert.equal(outputAllowed("README-og-image.webp"), false)
+})
+
+// reconcile (§0a, §8 step 9)
+
+/** The fixture registry with one book like book one today: live, on Publish, no builder. */
+const withUnrecorded = {
+  ...registry,
+  books: [
+    ...registry.books,
+    {
+      ...registry.books[0],
+      slug: "publish-fixture",
+      status: "live",
+      content: { repo: "example/publish-fixture", live_branch: "main", drafts_branch: "drafts" },
+      site: {
+        domain: "publish-fixture.example.invalid",
+        host: { kind: "obsidian-publish", site_id: "x", publish_host: "publish-01.obsidian.md" },
+        legacy_origins: [],
+      },
+    },
+  ],
+}
+
+test("reconcile looks after each builder book's live and drafts branches, never a retired one", () => {
+  const targets = reconcileTargets(withUnrecorded)
+  assert.deepEqual(
+    targets.map((t) => `${t.slug}@${t.branch}${t.live ? " live" : ""} → ${t.project}`),
+    [
+      "design-fixture@main live → design-fixture",
+      "design-fixture@drafts → design-fixture",
+      "no-suggest-fixture@main live → no-suggest-fixture",
+      "no-suggest-fixture@drafts → no-suggest-fixture",
+    ],
+  )
+  assert.ok(targets.every((t) => !t.unrecorded))
+})
+
+test("a book with no drafts branch, or drafts the same as live, has one target", () => {
+  const book = registry.books[0]
+  const one = (content) => ({
+    ...registry,
+    books: [{ ...book, content: { ...book.content, ...content } }],
+  })
+  assert.equal(reconcileTargets(one({ drafts_branch: null })).length, 1)
+  assert.equal(reconcileTargets(one({ drafts_branch: "main" })).length, 1)
+})
+
+test("slug narrows the run to one builder book, and names what is wrong otherwise", () => {
+  assert.deepEqual(
+    reconcileTargets(withUnrecorded, { slug: "no-suggest-fixture" }).map((t) => t.branch),
+    ["main", "drafts"],
+  )
+  assert.throws(
+    () => reconcileTargets(withUnrecorded, { slug: "publish-fixture" }),
+    /not on the builder/,
+  )
+  assert.throws(() => reconcileTargets(withUnrecorded, { slug: "retired-fixture" }), /retired/)
+  assert.throws(() => reconcileTargets(withUnrecorded, { slug: "nope" }), /no book with slug/)
+})
+
+test("unrecorded_book adds one book not yet on the builder, with its project named after its slug", () => {
+  const targets = reconcileTargets(withUnrecorded, { unrecordedBook: "publish-fixture" })
+  const added = targets.filter((t) => t.unrecorded)
+  assert.deepEqual(
+    added.map((t) => [t.slug, t.branch, t.project, t.repo]),
+    [
+      ["publish-fixture", "main", "publish-fixture", "example/publish-fixture"],
+      ["publish-fixture", "drafts", "publish-fixture", "example/publish-fixture"],
+    ],
+  )
+  // The builder books are still reconciled in the same run.
+  assert.equal(targets.length, 6)
+  // With slug too, only that book.
+  assert.equal(
+    reconcileTargets(withUnrecorded, { slug: "publish-fixture", unrecordedBook: "publish-fixture" })
+      .length,
+    2,
+  )
+})
+
+test("unrecorded_book is refused once the entry names the builder, and for a retired or unknown book", () => {
+  assert.throws(
+    () => reconcileTargets(registry, { unrecordedBook: "design-fixture" }),
+    /already names the builder/,
+  )
+  assert.throws(() => reconcileTargets(registry, { unrecordedBook: "retired-fixture" }), /retired/)
+  assert.throws(() => reconcileTargets(registry, { unrecordedBook: "nope" }), /no book with slug/)
+})
+
+test("markers: production on the project, previews on the branch alias", () => {
+  assert.equal(
+    markerUrl({ project: "social-research-methods", branch: "main", live: true }),
+    "https://social-research-methods.pages.dev/.well-known/textbook.json",
+  )
+  assert.equal(
+    markerUrl({ project: "social-research-methods", branch: "drafts", live: false }),
+    "https://drafts.social-research-methods.pages.dev/.well-known/textbook.json",
+  )
+  assert.equal(branchAlias("design/PR_12"), "design-pr-12")
+  assert.equal(branchAlias("a".repeat(40)).length, 28)
+})
+
+test("a served marker is current only when every field matches what would be built", () => {
+  const want = {
+    slug: "b",
+    branch: "main",
+    bookCommit: "1".repeat(40),
+    registryDigest: "sha256:abc",
+    builderCommit: "2".repeat(40),
+  }
+  const served = marker(want)
+  assert.equal(markerCurrent(served, want), true)
+  assert.equal(markerCurrent(JSON.parse(JSON.stringify(served)), want), true)
+  assert.equal(markerCurrent(null, want), false)
+  assert.equal(markerCurrent("<html>", want), false)
+  for (const field of Object.keys(served)) {
+    assert.equal(markerCurrent({ ...served, [field]: "other" }, want), false, field)
+  }
+  assert.equal(markerDifference({ ...served, builder_commit: "x" }, want), "builder_commit changed")
+  assert.equal(markerDifference(null, want), "nothing served yet")
 })

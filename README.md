@@ -9,16 +9,16 @@ private, no book rebuilds, and the last deployment of each keeps serving. Treat 
 production infrastructure.
 
 - **The plan:** `design/BOOK-ONE-TO-QUARTZ.md` in `textbookproject2026-alt/textbook-registry`.
-  This repo is §8 step 8.
+  This repo is §8 steps 8 (the build) and 9 (`reconcile`).
 - **The registry:** `registry.json` in the same repo. The builder reads it from `main` at
   every build.
 - **The platform's plugins:** `textbookproject2026-alt/quartz-edition-extras`, pinned in
   `quartz.lock.json`.
 - **Service inventory:** `docs/INFRASTRUCTURE.md` in `textbook-registry`.
 
-**What it doesn't do yet.** It builds; it doesn't deploy. The `reconcile` workflow, the
-upload to Cloudflare Pages and the `build-nudge` Worker are §8 steps 9 and 10. No
-Cloudflare credential exists in this repository.
+**What it doesn't do yet.** The `build-nudge` Worker, which starts `reconcile` on a
+book's push and every 15 minutes, is §8 step 10. Until then `reconcile` runs only by
+hand.
 
 ---
 
@@ -86,6 +86,36 @@ Exit status: `0` built, `2` refused (below), anything else a failed build.
 Quartz reads `quartz.config.yaml` only from its working directory, so the build runs in
 a scratch directory that holds the rendered config and links everything else back here.
 
+## Deploying: `reconcile`
+
+`.github/workflows/reconcile.yml` (§0a, §8 step 9) builds and deploys every book whose
+served build marker is behind. For each book on the builder (registry
+`site.host.builder: "quartz-book"`) and each of its two branches, it compares
+`/.well-known/textbook.json` on Pages with what a build would give now: the branch
+head, the digest of the book's registry entry, and this repo's commit. Where they
+differ it builds, in a job with no secrets, then deploys with `wrangler pages deploy`
+in a separate job that holds the Cloudflare token, and checks that Pages serves the
+new marker. A run with nothing to do deploys nothing.
+
+- **Run it by hand:** Actions → **reconcile** → **Run workflow**, branch `main`.
+  Leave `slug` empty for every book. It is always safe to run again.
+- **Where it deploys:** the book's Pages project, `site.host.project`, in the
+  platform's Cloudflare account. The live branch is the project's production branch,
+  on `<project>.pages.dev`; `drafts` is on `drafts.<project>.pages.dev`, with
+  `X-Robots-Tag: noindex`.
+- **Only a run from `main` deploys.** From any other branch it builds and checks, and
+  stops there.
+- **Concurrency:** one build per book and branch at a time, never cancelled.
+- **A failed build** deploys nothing: the previous deployment keeps serving, and the
+  run is red.
+- **Secrets:** `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit, the platform's account
+  only) and `CLOUDFLARE_ACCOUNT_ID`. Only the deploy job reads them.
+- **`unrecorded_book` (temporary).** Book one's registry entry can't name the builder
+  until §8 step 17 records its new host, after the cutover. Until then, give its slug,
+  `social-research-methods`, here to build it; its Pages project is named after its
+  slug. Remove the input in the step 17 pull request. Once the entry names the
+  builder, the input is refused.
+
 ## What's here
 
 | Path | What |
@@ -97,11 +127,13 @@ a scratch directory that holds the rendered config and links everything else bac
 | `builder/lib.mjs` | Every decision the build makes, as pure functions |
 | `builder/prepare.mjs`, `builder/finish.mjs` | The steps before and after Quartz |
 | `builder/check-output.mjs` | The allowlist check on its own |
+| `builder/reconcile.mjs` | `reconcile`'s comparison: which books and branches are behind their served marker |
 | `builder/pages/how-to-comment.md` | The reader page every book gets, from book one's `docs/how-to-comment.md` |
 | `fixtures/book/` | A small book used by the tests. `chapters/QA.md` is the design fixture, moved from book one (§4c) |
 | `fixtures/registry.json` | Three fixture books: suggest on, suggest off, and retired |
 | `test/` | `lib.test.mjs` (no Quartz), `build.test.mjs` (builds the fixture), `check-book-one.mjs` (checks a build of book one) |
-| `.github/workflows/ci.yml` | Runs the tests, then builds book one from its current `main` and checks it |
+| `.github/workflows/ci.yml` | Runs the tests, then builds book one from its current `main` and checks it. Deploys nothing |
+| `.github/workflows/reconcile.yml`, `reconcile-book.yml` | Builds and deploys the books that are behind (above) |
 
 ## Tests
 
@@ -117,8 +149,8 @@ node test/check-book-one.mjs /tmp/book-one-site ../book-one
   `quartz-edition-extras` (BOOK-ONE-TO-QUARTZ §4c). The theme block in
   `quartz.config.yaml` is overridden by it.
 - **The extras pin:** `npx quartz plugin update edition-integrations edit-on-github`,
-  then commit `quartz.lock.json`. Every book rebuilds with the new builder commit once
-  `reconcile` exists (§4b). If `.quartz/plugins` already holds the plugins, delete it
+  then commit `quartz.lock.json`. Every book rebuilds with the new builder commit at
+  its next `reconcile` (§4b). If `.quartz/plugins` already holds the plugins, delete it
   first: `plugin install` keeps a populated directory without checking the lock.
 - **Quartz itself:** merge from `upstream` (`jackyzha0/quartz`, branch `v5`), as the
   edition template does.

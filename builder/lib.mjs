@@ -307,3 +307,105 @@ export const walkFiles = (dir) =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? walkFiles(join(dir, e.name)) : [join(dir, e.name)],
   )
+
+// ---------------------------------------------------------------------------
+// reconcile (§0a, §8 step 9): which books and branches the builder looks
+// after, where each one's served marker is, and whether it is current.
+
+/** The value of a registry entry's site.host.builder that names this builder (§8 step 7). */
+export const BUILDER_NAME = "quartz-book"
+
+/**
+ * Every (book, branch) pair reconcile looks after: each registered book whose
+ * site.host.builder is this builder, and isn't retired, on its live branch and
+ * its drafts branch. `slug` narrows the run to one book.
+ *
+ * `unrecordedBook` is temporary (§8 step 9 until step 17). Book one gets its
+ * Pages project at step 9 but its registry host isn't recorded until step 17,
+ * after the cutover, so no entry names the builder in between. This names one
+ * such book explicitly, for one run; its project is named after its slug, as
+ * step 9 creates it. Once the entry names the builder the input is refused, so
+ * it can't outlive the step that makes it unnecessary.
+ */
+export function reconcileTargets(registry, { slug = "", unrecordedBook = "" } = {}) {
+  const books = (registry?.books ?? [])
+    .filter((b) => b.site?.host?.builder === BUILDER_NAME && b.status !== "retired")
+    .map((b) => ({ book: b, project: b.site.host.project, unrecorded: false }))
+
+  if (unrecordedBook) {
+    const book = registry?.books?.find((b) => b.slug === unrecordedBook)
+    if (!book)
+      throw new Error(`unrecorded_book: no book with slug "${unrecordedBook}" in the registry.`)
+    if (book.status === "retired")
+      throw new Error(`unrecorded_book: book "${unrecordedBook}" is retired.`)
+    if (book.site?.host?.builder === BUILDER_NAME)
+      throw new Error(
+        `unrecorded_book: book "${unrecordedBook}" already names the builder in site.host.builder, so it is built like any other book. Leave unrecorded_book empty.`,
+      )
+    books.push({ book, project: book.slug, unrecorded: true })
+  }
+
+  const chosen = slug ? books.filter((b) => b.book.slug === slug) : books
+  if (slug && chosen.length === 0) {
+    const known = registry?.books?.some((b) => b.slug === slug)
+    throw new Error(
+      known
+        ? `book "${slug}" is not on the builder: its registry entry has no site.host.builder "${BUILDER_NAME}", or it is retired.`
+        : `no book with slug "${slug}" in the registry.`,
+    )
+  }
+
+  return chosen.flatMap(({ book, project, unrecorded }) => {
+    const live = book.content.live_branch
+    const drafts = book.content.drafts_branch
+    const branches = drafts && drafts !== live ? [live, drafts] : [live]
+    return branches.map((branch) => ({
+      slug: book.slug,
+      repo: book.content.repo,
+      project,
+      branch,
+      live: branch === live,
+      unrecorded,
+    }))
+  })
+}
+
+/**
+ * The subdomain Pages gives a preview branch's latest deployment: lower case,
+ * anything but a letter or digit as "-", at most 28 characters. A wrong guess
+ * shows up as a failed check after the deploy, not as a silent miss.
+ */
+export const branchAlias = (branch) =>
+  branch
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "-")
+    .slice(0, 28)
+
+/**
+ * Where a branch's build marker is served. The live branch is the project's
+ * production branch, so it is on `<project>.pages.dev` whether or not a custom
+ * domain is bound; any other branch is on its alias.
+ */
+export const markerUrl = ({ project, branch, live }) =>
+  `https://${live ? "" : `${branchAlias(branch)}.`}${project}.pages.dev/${MARKER_PATH}`
+
+/** A served marker is current when it names exactly what would be built now (§0a). */
+export const markerCurrent = (served, want) =>
+  !!served &&
+  typeof served === "object" &&
+  canonicalJson(marker(want)) ===
+    canonicalJson({
+      slug: served.slug,
+      branch: served.branch,
+      book_commit: served.book_commit,
+      registry_digest: served.registry_digest,
+      builder_commit: served.builder_commit,
+    })
+
+/** Why a served marker isn't current, for the run summary. */
+export function markerDifference(served, want) {
+  if (!served) return "nothing served yet"
+  const w = marker(want)
+  const fields = Object.keys(w).filter((k) => served[k] !== w[k])
+  return fields.length ? `${fields.join(", ")} changed` : "current"
+}

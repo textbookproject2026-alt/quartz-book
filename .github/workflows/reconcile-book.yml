@@ -1,0 +1,180 @@
+name: reconcile-book
+
+# One book on one branch, for reconcile.yml (BOOK-ONE-TO-QUARTZ §0a). Two jobs,
+# because book content is maintainer-controlled input to Quartz and its plugins:
+#
+#   build   no secrets. Checks the served marker again, builds the book at the
+#           branch head, and uploads the site as an artifact.
+#   deploy  the Cloudflare token, and nothing from the book but the built files.
+#           Uploads them to the book's Pages project, then checks that Pages
+#           serves the new marker.
+#
+# A failed build deploys nothing, so the previous deployment keeps serving.
+
+on:
+  workflow_call:
+    inputs:
+      slug:
+        type: string
+        required: true
+      branch:
+        type: string
+        required: true
+      project:
+        type: string
+        required: true
+      live:
+        type: boolean
+        required: true
+    secrets:
+      # Not required, so that a run from a branch other than main, which never
+      # deploys, works in a fork or before the secrets exist.
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  SLUG: ${{ inputs.slug }}
+  BRANCH: ${{ inputs.branch }}
+  PROJECT: ${{ inputs.project }}
+  LIVE: ${{ inputs.live }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      commit: ${{ steps.check.outputs.commit }}
+      marker_url: ${{ steps.check.outputs.marker_url }}
+      artifact: ${{ steps.check.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # No npm cache here, and the plugin cache below is restore-only: nothing
+      # this job writes after reading book content is kept for a later build.
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Is it still behind?
+        id: check
+        run: node builder/reconcile.mjs check "$SLUG" "$BRANCH" "$PROJECT" "$LIVE" "$RUNNER_TEMP"
+
+      # Saved by ci.yml, which builds no book content.
+      - name: Restore Quartz plugins
+        if: steps.check.outputs.build == 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: .quartz/plugins
+          key: ${{ runner.os }}-plugins-${{ hashFiles('quartz.lock.json') }}
+
+      - if: steps.check.outputs.build == 'true'
+        run: npm ci
+
+      - name: Install Quartz plugins
+        if: steps.check.outputs.build == 'true'
+        run: npx quartz plugin install
+
+      - name: Check out the book at that commit, anonymously
+        if: steps.check.outputs.build == 'true'
+        env:
+          REPO: ${{ steps.check.outputs.repo }}
+          COMMIT: ${{ steps.check.outputs.commit }}
+        run: |
+          git init --quiet "$RUNNER_TEMP/book"
+          cd "$RUNNER_TEMP/book"
+          git -c credential.helper= fetch --quiet --depth 1 "https://github.com/$REPO.git" "$COMMIT"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Build
+        if: steps.check.outputs.build == 'true'
+        run: >
+          ./build-book.sh "$RUNNER_TEMP/book" --branch "$BRANCH"
+          --out "$RUNNER_TEMP/site" --registry "$RUNNER_TEMP/registry.json"
+
+      # A marker that doesn't name exactly this builder and book commit would
+      # never compare as current, and every run would rebuild the book.
+      - name: Check the marker names this build
+        if: steps.check.outputs.build == 'true'
+        env:
+          COMMIT: ${{ steps.check.outputs.commit }}
+        run: |
+          node -e '
+            const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
+            const want = { slug: process.env.SLUG, branch: process.env.BRANCH,
+                           book_commit: process.env.COMMIT, builder_commit: process.env.GITHUB_SHA }
+            for (const [k, v] of Object.entries(want))
+              if (m[k] !== v) { console.error(`::error::the marker has ${k} ${m[k]}, not ${v}.`); process.exit(1) }
+          ' "$RUNNER_TEMP/site/.well-known/textbook.json"
+
+      - name: Keep the site for the deploy job
+        if: steps.check.outputs.build == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.check.outputs.artifact }}
+          path: ${{ runner.temp }}/site
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+  deploy:
+    needs: build
+    # Only a run from main deploys. From any other branch this is a dry run.
+    if: needs.build.outputs.build == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    env:
+      COMMIT: ${{ needs.build.outputs.commit }}
+      MARKER_URL: ${{ needs.build.outputs.marker_url }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: site
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Upload to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >
+          npx --yes wrangler@4.137.0 pages deploy site
+          --project-name "$PROJECT"
+          --branch "$BRANCH"
+          --commit-hash "$COMMIT"
+          --commit-message "$SLUG $BRANCH at ${COMMIT:0:7}, builder ${GITHUB_SHA:0:7}"
+          --commit-dirty=true
+
+      # Checking here makes a deploy that went somewhere else (a production
+      # branch that isn't the live branch, a wrong alias) a red run, rather than
+      # a book that rebuilds on every run.
+      - name: Check Pages serves the new marker
+        run: |
+          for i in $(seq 1 24); do
+            if curl -fsS -H 'cache-control: no-cache' "$MARKER_URL?deploy=$GITHUB_RUN_ID-$i" -o served.json \
+               && cmp -s served.json site/.well-known/textbook.json; then
+              echo "Pages serves the new marker at $MARKER_URL"; cat served.json; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::after two minutes, $MARKER_URL doesn't serve the marker just deployed."
+          cat served.json 2>/dev/null || true
+          exit 1
+
+      - name: Check a preview is noindex (D13)
+        if: ${{ !inputs.live }}
+        run: |
+          ROOT="${MARKER_URL%/.well-known/textbook.json}/"
+          curl -fsSI "$ROOT" | tee headers.txt
+          grep -qi '^x-robots-tag: *noindex' headers.txt || { echo "::error::$ROOT has no X-Robots-Tag: noindex."; exit 1; }

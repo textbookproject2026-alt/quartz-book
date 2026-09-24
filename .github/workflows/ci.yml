@@ -1,8 +1,8 @@
 name: ci
 
 # The builder's proof (BOOK-ONE-TO-QUARTZ §8 step 8): its own tests, the fixture
-# book, and a full build of book one from its current main. Nothing is deployed:
-# reconcile and the Pages upload are §8 step 9.
+# book, and a full build of book one from its current main. Nothing is deployed
+# here: reconcile.yml deploys (§8 step 9).
 
 on:
   pull_request:
