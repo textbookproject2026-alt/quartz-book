@@ -216,10 +216,26 @@ test("canonical links go on the book's domain; an existing one is kept", () => {
   const html = "<html><head><title>x</title></head><body></body></html>"
   assert.match(
     addCanonical(html, "book.example", "/chapters/definitions/the-three-domains"),
-    /<link rel="canonical" href="https:\/\/book\.example\/chapters\/definitions\/the-three-domains"><\/head>/,
+    /<link rel="canonical" href="https:\/\/book\.example\/chapters\/definitions\/the-three-domains" data-builder="quartz-book"><\/head>/,
   )
   const alias = '<html><head><link rel="canonical" href="https://book.example/x"></head></html>'
   assert.equal(addCanonical(alias, "book.example", "/y"), alias)
+})
+
+test("popovers don't take the builder's canonical link for an alias redirect", () => {
+  // Quartz's own pattern, read from its source so an upgrade that changes it
+  // fails here rather than on readers' hovers.
+  const util = readFileSync(
+    new URL("../quartz/components/scripts/util.ts", import.meta.url),
+    "utf8",
+  )
+  const src = util.match(/const canonicalRegex = \/(.+)\/(\w*)\n/)
+  assert.ok(src, "canonicalRegex not found in quartz/components/scripts/util.ts")
+  const canonicalRegex = new RegExp(src[1], src[2])
+  const html = addCanonical("<html><head></head></html>", "book.example", "/chapters/chapter-03")
+  assert.doesNotMatch(html, canonicalRegex)
+  // It still recognises Quartz's own alias pages.
+  assert.match('<link rel="canonical" href="../x">', canonicalRegex)
 })
 
 test("the builder's page loses its controls row", () => {

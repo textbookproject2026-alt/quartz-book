@@ -73,7 +73,8 @@ Exit status: `0` built, `2` refused (below), anything else a failed build.
      `/docs/how-to-comment` and `/docs/for-course-coordinators`.
    - `_headers` with `X-Robots-Tag: noindex` on every path, for any branch but the live
      one (D13).
-   - `<link rel="canonical">` on `site.domain` in every page.
+   - `<link rel="canonical">` on `site.domain` in every page, marked
+     `data-builder="quartz-book"` so Quartz's popovers don't read it as an alias redirect.
    - The build marker, `/.well-known/textbook.json`: the slug, the branch, the book
      commit, a digest of the book's registry entry (and the one platform value a build
      reads, the suggest-edit endpoint), and the builder commit. It has no timestamp, so

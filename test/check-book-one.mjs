@@ -56,7 +56,9 @@ check(
     )
     assert.match(
       readFileSync(join(checkout, "community/contributors.md"), "utf8"),
-      /\[\[chapter-03\\?\|Chapter 3\]\]/,
+      // gen-contributors writes the full path since §8 step 14; the short form
+      // is what this check was written against, and is kept for older commits.
+      /\[\[(chapters\/)?chapter-03\\?\|Chapter 3\]\]/,
     )
     const html = read("community/contributors.html")
     assert.match(
@@ -129,7 +131,7 @@ check("main is indexable, and every page is canonical on the book's domain", () 
   assert.ok(!existsSync(join(out, "_headers")))
   assert.match(
     read("chapters/chapter-03.html"),
-    /<link rel="canonical" href="https:\/\/social-research-methods\.confused4now\.org\/chapters\/chapter-03">/,
+    /<link rel="canonical" href="https:\/\/social-research-methods\.confused4now\.org\/chapters\/chapter-03" data-builder="quartz-book">/,
   )
 })
 
