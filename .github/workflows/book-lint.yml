@@ -1,0 +1,55 @@
+name: book-lint
+
+# A book's Markdown lint, as a reusable workflow (BOOK-ONE-TO-QUARTZ §8 step 14,
+# D6). The book's thin caller:
+#
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#   jobs:
+#     markdownlint:
+#       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-lint.yml@stable
+#
+# markdownlint-cli2 over every Markdown file in the checkout, with the platform's
+# rules, automation/.markdownlint-cli2.yaml. A book that keeps its own
+# .markdownlint-cli2.yaml at its root is linted with that one instead.
+
+on:
+  workflow_call:
+    inputs:
+      platform_ref:
+        description: The quartz-book ref the rules are taken from. Keep it the ref the caller names after the @.
+        required: false
+        type: string
+        default: stable
+
+jobs:
+  markdownlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the platform's rules
+        env:
+          REF: ${{ inputs.platform_ref }}
+        run: |
+          set -euo pipefail
+          git -c credential.helper= clone --quiet --depth 1 --branch "$REF" --filter=blob:none --sparse \
+            https://github.com/textbookproject2026-alt/quartz-book.git "$RUNNER_TEMP/platform"
+          git -C "$RUNNER_TEMP/platform" sparse-checkout set automation
+          echo "quartz-book at $REF: $(git -C "$RUNNER_TEMP/platform" rev-parse HEAD)"
+
+      - name: Use the platform's rules unless the book has its own
+        run: |
+          if [ -f .markdownlint-cli2.yaml ]; then
+            echo "Using the book's own .markdownlint-cli2.yaml."
+          else
+            cp "$RUNNER_TEMP/platform/automation/.markdownlint-cli2.yaml" .markdownlint-cli2.yaml
+          fi
+
+      - uses: DavidAnson/markdownlint-cli2-action@v20
+        with:
+          globs: "**/*.md"

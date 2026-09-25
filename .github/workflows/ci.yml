@@ -43,8 +43,8 @@ jobs:
       - name: Style
         run: npx prettier --check builder test fixtures/registry.json quartz.config.yaml
 
-      - name: The builder's tests (fixture book, fixture registry)
-        run: node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/build.test.mjs
+      - name: The builder's and the book automation's tests (fixture book, fixture registry)
+        run: node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 
       - name: Check out book one's main, anonymously, as the builder will
         run: >

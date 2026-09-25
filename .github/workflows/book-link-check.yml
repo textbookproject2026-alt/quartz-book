@@ -1,0 +1,82 @@
+name: book-link-check
+
+# A book's link check, as a reusable workflow (BOOK-ONE-TO-QUARTZ §8 step 14,
+# D6). The book's thin caller keeps its own triggers (a push or pull request that
+# touches Markdown, and a weekly run):
+#
+#   on:
+#     push:
+#       paths: ["**/*.md", ".lycheeignore", ".github/workflows/link-check.yml"]
+#     pull_request:
+#       paths: ["**/*.md", ".lycheeignore", ".github/workflows/link-check.yml"]
+#     schedule:
+#       - cron: "0 6 * * 1"
+#   permissions:
+#     contents: read
+#   jobs:
+#     lychee:
+#       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-link-check.yml@stable
+#
+# lychee checks every Markdown file in the checkout (the ref that started the
+# run) apart from docs/, templates/ and node_modules/. Its ignore list is
+# automation/.lycheeignore with the book's own address filled in from the
+# registry, plus the book's own .lycheeignore if it has one
+# (automation/scripts/lychee-ignore.mjs). 429s count as a pass: a rate limit
+# says nothing about the link.
+#
+# It runs the lychee binary directly instead of lychee-action: the action's
+# entrypoint evals its command line and crashes on filenames containing
+# quotes/apostrophes, which pandoc-converted chapter titles will contain.
+
+on:
+  workflow_call:
+    inputs:
+      platform_ref:
+        description: The quartz-book ref the ignore list is taken from. Keep it the ref the caller names after the @.
+        required: false
+        type: string
+        default: stable
+
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Fetch the platform's scripts
+        env:
+          REF: ${{ inputs.platform_ref }}
+        run: |
+          set -euo pipefail
+          git -c credential.helper= clone --quiet --depth 1 --branch "$REF" --filter=blob:none --sparse \
+            https://github.com/textbookproject2026-alt/quartz-book.git "$RUNNER_TEMP/platform"
+          git -C "$RUNNER_TEMP/platform" sparse-checkout set automation
+          echo "quartz-book at $REF: $(git -C "$RUNNER_TEMP/platform" rev-parse HEAD)"
+
+      - name: Write the ignore list
+        run: |
+          set -euo pipefail
+          node "$RUNNER_TEMP/platform/automation/scripts/lychee-ignore.mjs" > "$RUNNER_TEMP/lycheeignore"
+          mv "$RUNNER_TEMP/lycheeignore" .lycheeignore
+          cat .lycheeignore
+
+      - name: Install lychee
+        run: |
+          curl -sSfL -o /tmp/lychee.tar.gz \
+            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.23.0/lychee-x86_64-unknown-linux-gnu.tar.gz
+          tar -xzf /tmp/lychee.tar.gz -C /tmp lychee
+          sudo mv /tmp/lychee /usr/local/bin/lychee
+
+      - name: Run lychee
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # raises GitHub's rate limit for github.com links
+        run: >
+          lychee --no-progress
+          --exclude-path templates --exclude-path docs --exclude-path node_modules
+          --accept 200,206,429 --hidden "**/*.md"
