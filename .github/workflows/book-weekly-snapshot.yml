@@ -1,0 +1,119 @@
+name: book-weekly-snapshot
+
+# A book's weekly snapshot tag, as a reusable workflow (BOOK-ONE-TO-QUARTZ §8
+# step 14, D6). The book's thin caller:
+#
+#   on:
+#     schedule:
+#       - cron: "0 3 * * 0"
+#     workflow_dispatch:
+#   permissions:
+#     contents: write
+#   jobs:
+#     snapshot:
+#       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-weekly-snapshot.yml@stable
+#
+# Tags the live branch as snapshot-YYYY-MM-DD, with an annotated message listing
+# what changed since the previous snapshot, when anything other than the weekly
+# generated pages changed. Tags never move: a second run on the same day does
+# nothing. GitHub serves each tag as a browsable tree and a zip, which is the
+# point: a dated copy of the book anyone can download.
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: The book's live branch, the one that is tagged.
+        required: false
+        type: string
+        default: main
+      prefix:
+        required: false
+        type: string
+        default: snapshot-
+      ignore:
+        description: Paths whose changes alone don't make a snapshot (the pages the weekly jobs regenerate).
+        required: false
+        type: string
+        default: community/contributors.md community/derivatives.md community/dashboard.md
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the snapshot tag
+    concurrency:
+      group: book-weekly-snapshot
+      cancel-in-progress: false
+    env:
+      PREFIX: ${{ inputs.prefix }}
+      IGNORE: ${{ inputs.ignore }}
+      BRANCH: ${{ inputs.branch }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Tag the live branch if it changed since the last snapshot
+        run: |
+          set -euo pipefail
+
+          DATE="$(date -u +%Y-%m-%d)"
+          TAG="${PREFIX}${DATE}"
+          SHA="$(git rev-parse HEAD)"
+          SERVER="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "::notice::${TAG} already exists, and tags never move. Nothing to do."
+            echo "${TAG} already exists; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # The names are dated, so the last one by name is the latest.
+          LAST="$(git tag -l "${PREFIX}*" --sort=-refname | sed -n 1p)"
+
+          SPEC=(.)
+          for p in $IGNORE; do SPEC+=(":(exclude)${p}"); done
+
+          if [ -z "$LAST" ]; then
+            SINCE="First snapshot."
+          else
+            if git diff --quiet "$LAST" HEAD -- "${SPEC[@]}"; then
+              echo "${BRANCH} has not changed since ${LAST} (weekly generated pages aside). No snapshot this week."
+              echo "No change since ${LAST}; no snapshot." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            COUNT="$(git diff --name-only "$LAST" HEAD -- "${SPEC[@]}" | wc -l | tr -d ' ')"
+            SINCE="${COUNT} file(s) changed since ${LAST}:"
+          fi
+
+          # The tag's message is what `git show <tag>` prints: when, which
+          # commit, and what changed, without opening anything.
+          {
+            echo "Weekly snapshot of ${BRANCH}, ${DATE}"
+            echo
+            echo "${BRANCH} at ${SHA}."
+            echo "${SINCE}"
+            if [ -n "$LAST" ]; then
+              echo
+              git diff --name-status "$LAST" HEAD -- "${SPEC[@]}" | sed -n 1,60p # sed, not head: head exits early, and pipefail would fail the step
+            fi
+          } > "${RUNNER_TEMP}/tag-message.txt"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -F "${RUNNER_TEMP}/tag-message.txt" "$SHA"
+          git push --quiet origin "refs/tags/${TAG}"
+
+          echo "Tagged ${SHA} as ${TAG}. ${SINCE}"
+          {
+            echo "### ${TAG}"
+            echo
+            echo "- Browse: ${SERVER}/tree/${TAG}"
+            echo "- Download: ${SERVER}/archive/refs/tags/${TAG}.zip"
+            [ -n "$LAST" ] && echo "- Changes since ${LAST}: ${SERVER}/compare/${LAST}...${TAG}"
+            true
+          } >> "$GITHUB_STEP_SUMMARY"

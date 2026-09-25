@@ -1,0 +1,22 @@
+config:
+  default: true
+  MD013: false        # no hard line-length limit (prose)
+  MD033: false        # allow inline HTML (raw tables from Word migration)
+  MD041: false        # first line need not be a top-level heading
+  MD034: false        # allow bare URLs (reference docs)
+  MD040: false        # fenced blocks needn't specify a language (dir trees)
+  # MD051 (link-fragments) is off because the book's citations are Obsidian
+  # block references: [Bhaskar, 1979](#^ref-bhaskar-1979) pointing at a ^ref-...
+  # block ID on the matching line of the chapter's reference list. They resolve
+  # in Obsidian and on Publish; markdownlint only understands heading anchors
+  # and reports every one as broken. This is the linking convention the
+  # authoring app generates, so leaving the rule on turns CI red on every
+  # chapter it ever links. See docs/the-authoring-app.md, "Citations to the
+  # reference list".
+  MD051: false
+  MD024:
+    siblings_only: true
+ignores:
+  - "node_modules/**"
+  - "templates/**"
+  - "docs/**"
