@@ -16,6 +16,7 @@ import {
   markerDifference,
   markerUrl,
   outputAllowed,
+  plausibleSite,
   publishUrl,
   reconcileTargets,
   redirectsFile,
@@ -116,6 +117,42 @@ test("the registry digest: stable across key order, sensitive to this book and t
     platform: { suggest_edit_endpoint: "https://elsewhere.invalid/" },
   }
   assert.notEqual(registryDigest(endpointChanged, book), digest)
+})
+
+test("the registry digest moves with the platform's Plausible site, and not before it exists", () => {
+  const book = findBook(registry, "design-fixture")
+  const digest = registryDigest(registry, book)
+  const withSite = (plausible) => ({
+    ...registry,
+    platform: { ...registry.platform, analytics: { plausible } },
+  })
+  const site = { script_src: "https://plausible.io/js/pa-a.js", site: "p.example", dashboard_public: true }
+  assert.notEqual(registryDigest(withSite(site), book), digest)
+  assert.notEqual(
+    registryDigest(withSite({ ...site, script_src: "https://plausible.io/js/pa-b.js" }), book),
+    registryDigest(withSite(site), book),
+  )
+})
+
+test("Plausible: the platform's one site, for live books only (D19)", () => {
+  const live = findBook(registry, "no-suggest-fixture")
+  const preview = findBook(registry, "design-fixture")
+  const site = { script_src: "https://plausible.io/js/pa-a.js", site: "p.example", dashboard_public: true }
+  const own = { script_src: "https://plausible.io/js/pa-own.js", site: "own.example", dashboard_public: false }
+  const withPlatform = (plausible) => ({
+    ...registry,
+    platform: { ...registry.platform, analytics: { plausible } },
+  })
+  // The platform's site wins over a book's own, and null there means none at all.
+  assert.deepEqual(plausibleSite(withPlatform(site), { ...live, analytics: { plausible: own } }), site)
+  assert.equal(plausibleSite(withPlatform(null), { ...live, analytics: { plausible: own } }), null)
+  // A preview book never counts, even on the platform's site.
+  assert.equal(plausibleSite(withPlatform(site), preview), null)
+  assert.equal(bookOptions(withPlatform(site), preview, "main").plausibleScriptSrc, "")
+  assert.equal(bookOptions(withPlatform(site), live, "main").plausibleScriptSrc, site.script_src)
+  // Until the registry has the platform field, the book's own site is read.
+  assert.deepEqual(plausibleSite(registry, { ...live, analytics: { plausible: own } }), own)
+  assert.equal(plausibleSite(registry, live), null)
 })
 
 test("everything at the repo root outside the allowlist is ignored, whole", () => {

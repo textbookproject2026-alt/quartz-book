@@ -65,10 +65,23 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     // Shown only for books with suggest-edit on. Elsewhere the function would
     // answer 403, so the button stays hidden (edit-on-github's "" default).
     suggestEndpoint: suggestEnabled ? endpoint : "",
-    plausibleScriptSrc: book.analytics?.plausible?.script_src ?? "",
+    plausibleScriptSrc: plausibleSite(registry, book)?.script_src ?? "",
     licence: book.licence,
     editionTemplateRepo: book.editions?.template_repo ?? null,
   }
+}
+
+/**
+ * The Plausible site a book counts in, or null (D19, §8 step 17a). One site
+ * covers the platform, named once in `platform.analytics.plausible`; only live
+ * books count, so a preview book on `*.pages.dev` never does. Until the
+ * registry has the platform field, the book's own `analytics.plausible` is read
+ * instead, so this can merge first without changing any build.
+ */
+export function plausibleSite(registry, book) {
+  if (book.status !== "live") return null
+  const platform = registry.platform?.analytics
+  return (platform ? platform.plausible : book.analytics?.plausible) ?? null
 }
 
 /** JSON with keys sorted at every level, so a digest doesn't depend on key order. */
@@ -84,14 +97,15 @@ export function canonicalJson(value) {
 
 /**
  * The registry half of the build key (§0a). It covers the book's entry and the
- * one platform value a build reads (the suggest-edit endpoint), so a change to
- * either rebuilds the book, and a change to another book's entry doesn't.
+ * platform values a build reads (the suggest-edit endpoint and the Plausible
+ * site), so a change to either rebuilds the book, and a change to another
+ * book's entry doesn't. `analytics` joins the input only once the registry has
+ * it, so no digest moves until then.
  */
 export function registryDigest(registry, book) {
-  const input = canonicalJson({
-    book,
-    platform: { suggest_edit_endpoint: registry.platform?.suggest_edit_endpoint ?? null },
-  })
+  const platform = { suggest_edit_endpoint: registry.platform?.suggest_edit_endpoint ?? null }
+  if (registry.platform?.analytics) platform.analytics = registry.platform.analytics
+  const input = canonicalJson({ book, platform })
   return `sha256:${createHash("sha256").update(input).digest("hex")}`
 }
 
