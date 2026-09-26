@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "platform": {
-    "suggest_edit_endpoint": "https://suggest-edit.example.invalid/api/suggest-edit"
+    "suggest_edit_endpoint": "https://suggest-edit.example.invalid/api/suggest-edit",
+    "analytics": null
   },
   "books": [
     {
@@ -27,7 +28,6 @@
         },
         "legacy_origins": []
       },
-      "analytics": { "plausible": null },
       "annotations": { "hypothesis_groups": [] },
       "suggest_edit": { "enabled": true, "counted_from": null },
       "cms": { "enabled": false, "host": null },
@@ -56,7 +56,6 @@
         },
         "legacy_origins": []
       },
-      "analytics": { "plausible": null },
       "annotations": { "hypothesis_groups": [] },
       "suggest_edit": { "enabled": false, "counted_from": null },
       "cms": { "enabled": false, "host": null },
@@ -85,7 +84,6 @@
         },
         "legacy_origins": []
       },
-      "analytics": { "plausible": null },
       "annotations": { "hypothesis_groups": [] },
       "suggest_edit": { "enabled": true, "counted_from": null },
       "cms": { "enabled": false, "host": null },

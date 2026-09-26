@@ -53,11 +53,13 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
       `book "${book.slug}" has suggest_edit enabled, but the registry has no platform.suggest_edit_endpoint.`,
     )
   // D19 (§8 step 17a): the platform's one Plausible site, and only for a live
-  // book, so a preview book on *.pages.dev never counts. Until the registry has
-  // platform.analytics, the book's own analytics.plausible is read instead.
+  // book, so a preview book on *.pages.dev never counts. The registry always
+  // states platform.analytics (null for no analytics anywhere), so a missing
+  // field is a typo, not "no analytics".
+  if (registry.platform?.analytics === undefined)
+    refuse("the registry has no platform.analytics. Give the platform's Plausible site, or null.")
   const counted = book.status === "live"
-  const platformSrc = registry.platform?.analytics?.plausible?.script_src
-  const plausibleSrc = platformSrc ?? book.analytics?.plausible?.script_src ?? ""
+  const plausibleSrc = registry.platform.analytics?.plausible?.script_src ?? ""
   return {
     slug: book.slug,
     title: book.title,
@@ -92,12 +94,13 @@ export function canonicalJson(value) {
  * The registry half of the build key (§0a). It covers the book's entry and the
  * platform values a build reads (the suggest-edit endpoint and the Plausible
  * site), so a change to either rebuilds the book, and a change to another
- * book's entry doesn't. `analytics` joins the input only once the registry has
- * it, so no digest moves until then.
+ * book's entry doesn't.
  */
 export function registryDigest(registry, book) {
-  const platform = { suggest_edit_endpoint: registry.platform?.suggest_edit_endpoint ?? null }
-  if (registry.platform?.analytics) platform.analytics = registry.platform.analytics
+  const platform = {
+    suggest_edit_endpoint: registry.platform?.suggest_edit_endpoint ?? null,
+    analytics: registry.platform?.analytics ?? null,
+  }
   const input = canonicalJson({ book, platform })
   return `sha256:${createHash("sha256").update(input).digest("hex")}`
 }
