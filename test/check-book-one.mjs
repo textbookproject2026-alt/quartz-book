@@ -100,7 +100,7 @@ check("Suggest follows the registry: on for book one, with the platform endpoint
 check("Plausible counts on the book's domain only", () => {
   const html = read("chapters/chapter-03.html")
   assert.ok(
-    html.includes(book.analytics.plausible.script_src),
+    html.includes(registry.platform.analytics.plausible.script_src),
     "the registry's Plausible script is missing",
   )
   assert.ok(html.includes(book.site.domain))

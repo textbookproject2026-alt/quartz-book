@@ -718,12 +718,13 @@ async function readBook() {
   try {
     const { book, registry, source } = await loadBook(REPO_ROOT);
     // D19 (BOOK-ONE-TO-QUARTZ §8 step 17a): one Plausible site for the platform,
-    // counting live books only, as the builder does. Until the registry has
-    // platform.analytics, the book's own analytics.plausible is read instead.
-    const shared = Boolean(registry.platform?.analytics);
-    const at = shared ? 'platform.analytics.plausible' : 'analytics.plausible';
-    const owner = shared ? { slug: book.slug, platform: registry.platform } : book;
-    const plausible = book.status === 'live' && field(owner, at, (v) => v === null || (typeof v === 'object' && !Array.isArray(v)), 'an object or null');
+    // counting live books only, as the builder does. The registry always states
+    // platform.analytics (null for no analytics anywhere), so missing is an error.
+    const at = 'platform.analytics.plausible';
+    const owner = { slug: book.slug, platform: registry.platform };
+    const isObjectOrNull = (v) => v === null || (typeof v === 'object' && !Array.isArray(v));
+    const analytics = field(owner, 'platform.analytics', isObjectOrNull, 'an object or null');
+    const plausible = book.status === 'live' && analytics !== null && field(owner, at, isObjectOrNull, 'an object or null');
     const plausibleSite = plausible && field(owner, `${at}.site`, isString, 'a hostname');
     const plausiblePublic = plausible && field(owner, `${at}.dashboard_public`, (v) => typeof v === 'boolean', 'true or false');
     const domain = field(book, 'site.domain', isString, 'a hostname');
@@ -759,7 +760,7 @@ async function readBook() {
       // DESIGN §0b: derived from the site name, never stored. The platform's
       // site covers every book, so its link is filtered to this book's address.
       plausibleUrl: plausiblePublic
-        ? `https://plausible.io/${plausibleSite}${shared ? `?f=is,hostname,${domain}` : ''}`
+        ? `https://plausible.io/${plausibleSite}?f=is,hostname,${domain}`
         : null,
     };
   } catch (err) {

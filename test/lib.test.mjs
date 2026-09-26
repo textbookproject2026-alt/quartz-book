@@ -118,7 +118,7 @@ test("the registry digest: stable across key order, sensitive to this book and t
   assert.notEqual(registryDigest(endpointChanged, book), digest)
 })
 
-test("the registry digest moves with the platform's Plausible site, and not before it exists", () => {
+test("the registry digest moves with the platform's Plausible site", () => {
   const book = findBook(registry, "design-fixture")
   const digest = registryDigest(registry, book)
   const withSite = (plausible) => ({
@@ -153,13 +153,18 @@ test("Plausible: the platform's one site, for live books only (D19)", () => {
   const own = { analytics: { plausible: { script_src: "https://plausible.io/js/pa-own.js" } } }
   assert.equal(src(withPlatform(site), live), site.script_src)
   assert.equal(src(withPlatform(null), live), "")
-  // The platform's site wins over a book's own.
-  assert.equal(src(withPlatform(site), { ...live, ...own }), site.script_src)
+  assert.equal(src(registry, live), "") // the fixture's platform.analytics is null
   // A preview book never counts, even on the platform's site.
   assert.equal(src(withPlatform(site), preview), "")
-  // Until the registry has the platform field, the book's own site is read.
-  assert.equal(src(registry, { ...live, ...own }), "https://plausible.io/js/pa-own.js")
-  assert.equal(src(registry, live), "")
+  // A book's own analytics field is never read, even with no platform site.
+  assert.equal(src(withPlatform(site), { ...live, ...own }), site.script_src)
+  assert.equal(src(registry, { ...live, ...own }), "")
+  // A registry without platform.analytics is refused, not read as "no analytics".
+  const { analytics, ...noAnalytics } = registry.platform
+  assert.throws(
+    () => src({ ...registry, platform: noAnalytics }, live),
+    (e) => e instanceof BuildRefused && /platform\.analytics/.test(e.message),
+  )
 })
 
 test("everything at the repo root outside the allowlist is ignored, whole", () => {
