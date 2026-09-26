@@ -52,6 +52,12 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     refuse(
       `book "${book.slug}" has suggest_edit enabled, but the registry has no platform.suggest_edit_endpoint.`,
     )
+  // D19 (§8 step 17a): the platform's one Plausible site, and only for a live
+  // book, so a preview book on *.pages.dev never counts. Until the registry has
+  // platform.analytics, the book's own analytics.plausible is read instead.
+  const counted = book.status === "live"
+  const platformSrc = registry.platform?.analytics?.plausible?.script_src
+  const plausibleSrc = platformSrc ?? book.analytics?.plausible?.script_src ?? ""
   return {
     slug: book.slug,
     title: book.title,
@@ -65,23 +71,10 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     // Shown only for books with suggest-edit on. Elsewhere the function would
     // answer 403, so the button stays hidden (edit-on-github's "" default).
     suggestEndpoint: suggestEnabled ? endpoint : "",
-    plausibleScriptSrc: plausibleSite(registry, book)?.script_src ?? "",
+    plausibleScriptSrc: counted ? plausibleSrc : "",
     licence: book.licence,
     editionTemplateRepo: book.editions?.template_repo ?? null,
   }
-}
-
-/**
- * The Plausible site a book counts in, or null (D19, §8 step 17a). One site
- * covers the platform, named once in `platform.analytics.plausible`; only live
- * books count, so a preview book on `*.pages.dev` never does. Until the
- * registry has the platform field, the book's own `analytics.plausible` is read
- * instead, so this can merge first without changing any build.
- */
-export function plausibleSite(registry, book) {
-  if (book.status !== "live") return null
-  const platform = registry.platform?.analytics
-  return (platform ? platform.plausible : book.analytics?.plausible) ?? null
 }
 
 /** JSON with keys sorted at every level, so a digest doesn't depend on key order. */
