@@ -59,8 +59,11 @@ Exit status: `0` built, `2` refused (below), anything else a failed build.
      default `content/` prefix), and **`suggestEndpoint`**: the registry's
      `platform.suggest_edit_endpoint` when the book has `suggest_edit.enabled`, and `""`
      otherwise, which hides the button.
-   - `edition-integrations`: `plausibleScriptSrc`, and `siteDomain`, so Plausible counts
-     only on the book's own domain, never on `pages.dev` or `localhost`.
+   - `edition-integrations`: `plausibleScriptSrc`, the platform's one Plausible site
+     (`platform.analytics.plausible`, D19) for a `live` book and `""` for any other, and
+     `siteDomain`, so Plausible counts only on the book's own domain, never on `pages.dev`
+     or `localhost`. Until the registry has the platform field, the book's own
+     `analytics.plausible` is read instead.
    - `baseUrl`, `pageTitle`, the footer's licence link, and `ignorePatterns`.
 4. **Builds with an allowlist** (D3). Only `index.md`, `chapters/`, `assets/`,
    `glossary.md` and `community/` are published. Everything else at the top of the book

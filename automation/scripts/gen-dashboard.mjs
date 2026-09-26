@@ -72,8 +72,9 @@
 //  5. Readership is a LINK, not a number. The Plausible Stats API needs a paid
 //     plan and a second expiring secret; the site's dashboard is already
 //     public, so the page points at it. The link is derived from the registry's
-//     analytics.plausible (https://plausible.io/<site> when dashboard_public is
-//     true), never stored. If the book has no Plausible site, or its dashboard
+//     platform.analytics.plausible (https://plausible.io/<site>?f=is,hostname,
+//     <site.domain> when dashboard_public is true and the book is live), never
+//     stored. If the book has no Plausible site, or its dashboard
 //     is not public, the page says so in as many words rather than quietly
 //     dropping the section — an empty spot on a health dashboard is
 //     indistinguishable from a healthy one.
@@ -491,7 +492,7 @@ function renderReadership(book) {
         ? `The site's visitor numbers are recorded by Plausible, under ${book.plausibleSite}, but that dashboard is not public, so there is nothing here to link to. **Visitor numbers are not visible from this page.**`
         : '**No analytics are configured for this book**, so there are no visitor numbers to link to.',
       '',
-      'Readership is linked from here once the book\'s entry in the platform registry has a Plausible site with `dashboard_public` set to `true`; this section picks it up at the next rebuild.',
+      'Readership is linked from here once the book is live and the platform registry has a Plausible site with `dashboard_public` set to `true`; this section picks it up at the next rebuild.',
       '',
       'It is deliberate that the numbers themselves are not copied onto this page: reading them from Plausible directly would need a paid plan and a second password to keep alive, and the dashboard already says it better than a summary would.',
     );
@@ -716,9 +717,15 @@ function renderPage({ annotations, github, book, stampDate }) {
 async function readBook() {
   try {
     const { book, registry, source } = await loadBook(REPO_ROOT);
-    const plausible = field(book, 'analytics.plausible', (v) => v === null || (typeof v === 'object' && !Array.isArray(v)), 'an object or null');
-    const plausibleSite = plausible && field(book, 'analytics.plausible.site', isString, 'a hostname');
-    const plausiblePublic = plausible && field(book, 'analytics.plausible.dashboard_public', (v) => typeof v === 'boolean', 'true or false');
+    // D19 (BOOK-ONE-TO-QUARTZ §8 step 17a): one Plausible site for the platform,
+    // counting live books only, as the builder does. Until the registry has
+    // platform.analytics, the book's own analytics.plausible is read instead.
+    const shared = Boolean(registry.platform?.analytics);
+    const at = shared ? 'platform.analytics.plausible' : 'analytics.plausible';
+    const owner = shared ? { slug: book.slug, platform: registry.platform } : book;
+    const plausible = book.status === 'live' && field(owner, at, (v) => v === null || (typeof v === 'object' && !Array.isArray(v)), 'an object or null');
+    const plausibleSite = plausible && field(owner, `${at}.site`, isString, 'a hostname');
+    const plausiblePublic = plausible && field(owner, `${at}.dashboard_public`, (v) => typeof v === 'boolean', 'true or false');
     const domain = field(book, 'site.domain', isString, 'a hostname');
     // null means the book has no department editions. Missing is still an error:
     // the registry always states it, and a typo must not read as "no editions".
@@ -749,8 +756,11 @@ async function readBook() {
       automationLogins: new Set(automationLogins.map((l) => l.toLowerCase())),
       suggestionsCountedFrom: countedFrom && `${countedFrom}T00:00:00Z`,
       plausibleSite: plausibleSite || null,
-      // DESIGN §0b: derived from the site name, never stored.
-      plausibleUrl: plausiblePublic ? `https://plausible.io/${plausibleSite}` : null,
+      // DESIGN §0b: derived from the site name, never stored. The platform's
+      // site covers every book, so its link is filtered to this book's address.
+      plausibleUrl: plausiblePublic
+        ? `https://plausible.io/${plausibleSite}${shared ? `?f=is,hostname,${domain}` : ''}`
+        : null,
     };
   } catch (err) {
     exitOnRegistryError(err);

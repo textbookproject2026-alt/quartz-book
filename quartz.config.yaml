@@ -290,7 +290,7 @@ plugins:
       name: edition-integrations
     enabled: true
     options:
-      plausibleScriptSrc: "" # SET PER BOOK: `analytics.plausible.script_src`, or ""
+      plausibleScriptSrc: "" # SET PER BOOK: `platform.analytics.plausible.script_src` if live, or ""
       siteDomain: "" # SET PER BOOK: `site.domain`; Plausible counts only there
       tagHelper: true
       annotationBadge: true
