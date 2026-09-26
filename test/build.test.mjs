@@ -124,11 +124,11 @@ test("the fixture on its live branch", async (t) => {
   await t.test("canonical links on the book's domain", () => {
     assert.match(
       b.read("chapters/chapter-01.html"),
-      /<link rel="canonical" href="https:\/\/design-fixture\.example\.invalid\/chapters\/chapter-01">/,
+      /<link rel="canonical" href="https:\/\/design-fixture\.example\.invalid\/chapters\/chapter-01" data-builder="quartz-book">/,
     )
     assert.match(
       b.read("index.html"),
-      /<link rel="canonical" href="https:\/\/design-fixture\.example\.invalid\/">/,
+      /<link rel="canonical" href="https:\/\/design-fixture\.example\.invalid\/" data-builder="quartz-book">/,
     )
   })
   await t.test("/how-to-comment is the builder's page, with no Edit link", () => {

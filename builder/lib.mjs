@@ -233,6 +233,14 @@ export function htmlUrl(outPath) {
  * Adds <link rel="canonical"> on the book's own domain, so the production
  * pages.dev alias and the previews don't compete with it in search (§0). A page
  * that already has one (Quartz's alias redirects) keeps its own.
+ *
+ * The tag ends with an attribute after `href` on purpose. Quartz's popovers
+ * (quartz/components/scripts/util.ts, fetchCanonical) take a tag of exactly
+ * `<link rel="canonical" href="…">` to mean "this page is an alias redirect"
+ * and fetch the href instead. Every page then fetched its live-domain twin: on
+ * pages.dev that was cross-origin and blocked, so no popover showed, and a
+ * drafts preview would have shown the live text (BOOK-ONE-TO-QUARTZ proof run,
+ * F4). test/lib.test.mjs holds this against Quartz's own pattern.
  */
 export function addCanonical(html, domain, url) {
   if (/<link rel="canonical"/.test(html)) return html
@@ -240,7 +248,7 @@ export function addCanonical(html, domain, url) {
     .split("/")
     .map((seg) => encodeURIComponent(decodeURIComponent(seg)))
     .join("/")}`
-  const tag = `<link rel="canonical" href="${href}">`
+  const tag = `<link rel="canonical" href="${href}" data-builder="quartz-book">`
   if (!html.includes("</head>"))
     throw new Error(`no </head> to put the canonical link before (${url}).`)
   return html.replace("</head>", `${tag}</head>`)
