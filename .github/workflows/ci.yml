@@ -89,6 +89,28 @@ jobs:
       - name: Check the build
         run: node test/check-live-book.mjs "$RUNNER_TEMP/live-book-site" "$RUNNER_TEMP/live-book" "${{ steps.book.outputs.slug }}"
 
+      # The phone layout in real device emulation (Pixel 7 in Chromium, iPhone 13
+      # in WebKit), through every state: loaded, menu open and closed, after
+      # navigating through the menu, the annotation sidebar opened and closed.
+      # It needs the network: the built pages load Hypothes.is from hypothes.is.
+      - name: Install the emulated phones' browsers
+        run: npx playwright-core install --with-deps chromium webkit
+
+      - name: Phone layout (Pixel 7, iPhone 13)
+        run: |
+          node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8801 &
+          sleep 1
+          node test/phone-layout.mjs http://127.0.0.1:8801/ "$RUNNER_TEMP/phone-layout"
+
+      - name: Keep the phone screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: phone-layout
+          path: ${{ runner.temp }}/phone-layout
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Keep the build for a look
         if: always()
         uses: actions/upload-artifact@v7
