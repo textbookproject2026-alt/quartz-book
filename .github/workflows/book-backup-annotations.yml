@@ -52,7 +52,28 @@ on:
         required: false
 
 jobs:
+  # A book without the secret has no backup, by design (BOOK-ONE-TO-QUARTZ §8 step
+  # 23: new books get no per-book token). The run is green, with a notice, and
+  # `backup` shows as skipped.
+  token:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - id: check
+        env:
+          HYPOTHESIS_API_TOKEN: ${{ secrets.HYPOTHESIS_API_TOKEN }}
+        run: |
+          if [ -z "$HYPOTHESIS_API_TOKEN" ]; then
+            echo "::notice::No HYPOTHESIS_API_TOKEN, so no backup this week. That is expected for a book without one. To back its annotations up, add the secret to the book repo (Settings -> Secrets and variables -> Actions; a token from https://hypothes.is/account/developer) and check that the caller passes it under secrets:."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
   backup:
+    needs: token
+    if: needs.token.outputs.present == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write # push the backup commit to the `backups` branch
@@ -64,15 +85,6 @@ jobs:
       KEEP: ${{ inputs.keep }}
 
     steps:
-      - name: Check the API token secret is present
-        env:
-          HYPOTHESIS_API_TOKEN: ${{ secrets.HYPOTHESIS_API_TOKEN }}
-        run: |
-          if [ -z "$HYPOTHESIS_API_TOKEN" ]; then
-            echo "::error::HYPOTHESIS_API_TOKEN did not reach this workflow. Add it to the book repo under Settings -> Secrets and variables -> Actions (a token from https://hypothes.is/account/developer, signed in as the account that owns the annotation groups), and check that the caller passes it under secrets:."
-            exit 1
-          fi
-
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.branch }}
