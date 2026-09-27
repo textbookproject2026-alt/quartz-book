@@ -28,10 +28,6 @@ places someone has already said something.
 
 Close the sidebar with the arrow at its top corner.
 
-**On a phone,** the margin isn't loaded until you tap the badge, so the page
-stays clear for reading. Tap it once: the sidebar opens, and from then on the
-highlights show and the comment tools work on that page.
-
 ---
 
 ## Leaving your own comment
@@ -52,8 +48,7 @@ full name. That's fine.
 Then, to comment:
 
 1. **Select the text you want to comment on** — drag across a sentence, a phrase,
-   a whole paragraph, whatever the comment is about. (On a phone, tap the badge
-   first: the button in the next step only appears once the margin is loaded.)
+   a whole paragraph, whatever the comment is about.
 2. A small **Annotate** button appears next to what you selected. Click it.
 3. The sidebar opens with an empty comment box, already attached to your
    selection. Type, then click **Post**.
