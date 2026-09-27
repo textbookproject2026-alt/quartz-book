@@ -37,6 +37,41 @@ function fixtureBook(slug, change = () => {}) {
   return { dir, head: git("rev-parse", "HEAD") }
 }
 
+/**
+ * Which of the home link's logos (full, icon) a page shows at `width`, from its
+ * built CSS: the last `display` given to `.home-link .home-link-<logo>` at the top
+ * level, in an @layer, or in an @media whose min-/max-width the width meets.
+ */
+function logosShown(css, width) {
+  const display = { full: "", icon: "" }
+  const applies = (prelude) => {
+    if (!prelude.startsWith("@media")) return true
+    const cond = prelude.replace(/^@media\s*(all\s+and\s*)?/, "")
+    const parts = [...cond.matchAll(/\((min|max)-width:\s*(\d+)px\)/g)]
+    if (parts.length === 0 || cond.replace(/\((min|max)-width:\s*\d+px\)|\s|and/g, "") !== "")
+      return false
+    return parts.every(([, m, px]) => (m === "min" ? width >= +px : width <= +px))
+  }
+  const stack = []
+  for (const [, text, brace] of css.matchAll(/([^{}]*)([{}])/g)) {
+    if (brace === "{") {
+      stack.push(text.trim())
+      continue
+    }
+    const selectors =
+      stack
+        .pop()
+        ?.split(",")
+        .map((s) => s.trim()) ?? []
+    if (!stack.every((p) => !p.startsWith("@") || p.startsWith("@layer") || applies(p))) continue
+    const value = /(?:^|;)\s*display:\s*([^;]+)/.exec(text)?.[1].trim()
+    if (!value) continue
+    for (const logo of Object.keys(display))
+      if (selectors.includes(`.home-link .home-link-${logo}`)) display[logo] = value
+  }
+  return Object.keys(display).filter((logo) => display[logo] !== "none")
+}
+
 function build(bookDir, branch, ...flags) {
   const out = join(scratch, `out-${++n}`)
   const run = spawnSync(
@@ -181,10 +216,34 @@ test("the fixture on its live branch", async (t) => {
       .filter((p) => !/<meta http-equiv="refresh"/.test(b.read(p)))
     assert.ok(pages.includes("404.html") && pages.includes("how-to-comment.html"), pages.join())
     const link =
-      '<div class="left sidebar"><p class="home-link"><a href="https://confused4now.org/">confused for now</a></p>'
+      '<div class="left sidebar"><p class="home-link"><a href="https://confused4now.org/" aria-label="Confused for Now (home)"><svg '
     for (const p of pages) assert.ok(b.read(p).includes(link), p)
     // The rest of the sidebar follows it, as before.
-    assert.match(b.read("chapters/chapter-01.html"), /<\/a><\/p><h2 class="page-title">/)
+    assert.match(b.read("chapters/chapter-01.html"), /<\/svg><\/a><\/p><h2 class="page-title">/)
+  })
+
+  await t.test("the home link's two inline logos: exactly one shows at each width", () => {
+    const html = b.read("chapters/chapter-01.html")
+    const a = /<p class="home-link">(<a [\s\S]*?<\/a>)<\/p>/.exec(html)[1]
+    const svgs = a.match(/<svg [^>]*>/g)
+    assert.deepEqual(
+      svgs.map((s) => /class="([^"]*)"/.exec(s)[1]),
+      ["home-link-full", "home-link-icon"],
+    )
+    for (const s of svgs) {
+      assert.match(s, / aria-hidden="true"/)
+      assert.match(s, / focusable="false"/)
+      assert.match(s, / fill="currentColor"/)
+    }
+    const css = [...html.matchAll(/<link href="([^"]+\.css)" rel="stylesheet"/g)]
+      .filter((m) => !/^https?:/.test(m[1]))
+      .map((m) => b.read(join("chapters", m[1])))
+      .join("\n")
+    // Quartz's desktop breakpoint is 1200px: the full logo from there up.
+    for (const width of [375, 800, 801, 1199])
+      assert.deepEqual(logosShown(css, width), ["icon"], `${width}px`)
+    for (const width of [1200, 1600])
+      assert.deepEqual(logosShown(css, width), ["full"], `${width}px`)
   })
 
   await t.test("the output check fails once machinery is added to the output", () => {
