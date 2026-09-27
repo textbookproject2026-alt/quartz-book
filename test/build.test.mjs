@@ -177,6 +177,8 @@ test("the fixture on its live branch", async (t) => {
     const pages = walkFiles(b.out)
       .map((p) => relative(b.out, p))
       .filter((p) => p.endsWith(".html"))
+      // alias-redirects' stubs are a meta refresh, with no layout.
+      .filter((p) => !/<meta http-equiv="refresh"/.test(b.read(p)))
     assert.ok(pages.includes("404.html") && pages.includes("how-to-comment.html"), pages.join())
     const link =
       '<div class="left sidebar"><p class="home-link"><a href="https://confused4now.org/">confused for now</a></p>'
