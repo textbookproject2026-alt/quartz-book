@@ -40,6 +40,26 @@ jobs:
       - name: Install Quartz plugins
         run: npx quartz plugin install
 
+      # quartz/cli/plugin-git-handlers.js carries a platform patch: upstream copied
+      # a subdir plugin (every extras plugin) from its repo's default branch and
+      # ignored the lock. This fails if an upstream update ever drops the patch.
+      - name: Every subdir plugin is the commit the lock pins
+        run: |
+          node -e '
+            const fs = require("fs")
+            const { plugins } = JSON.parse(fs.readFileSync("quartz.lock.json", "utf8"))
+            let bad = 0
+            for (const [name, e] of Object.entries(plugins)) {
+              if (!e.subdir) continue
+              let got = "(none)"
+              try { got = fs.readFileSync(`.quartz/plugins/${name}/.quartz-locked-commit`, "utf8").trim() } catch {}
+              const ok = got === e.commit
+              if (!ok) bad++
+              console.log(`${ok ? "ok  " : "BAD "} ${name}: lock ${e.commit.slice(0, 7)}, installed ${got.slice(0, 7)}`)
+            }
+            process.exit(bad ? 1 : 0)
+          '
+
       - name: Style
         run: npx prettier --check builder test fixtures/registry.json quartz.config.yaml
 
