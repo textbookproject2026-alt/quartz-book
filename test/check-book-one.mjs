@@ -48,12 +48,11 @@ check(
 )
 
 check(
-  "community/contributors.md's Chapter 3 link resolves, with Frankenstein/ in the tree but ignored",
+  "community/contributors.md's Chapter 3 link resolves, and Frankenstein/ is never published",
   () => {
-    assert.ok(
-      existsSync(join(checkout, "Frankenstein/chapter-03.md")),
-      "Frankenstein/chapter-03.md is no longer in book one",
-    )
+    // Frankenstein/ (placeholder chapters with the same names) left book one at
+    // §8 step 18. While it was there, this proved the builder ignored it; the
+    // output checks below hold either way.
     assert.match(
       readFileSync(join(checkout, "community/contributors.md"), "utf8"),
       // gen-contributors writes the full path since §8 step 14; the short form

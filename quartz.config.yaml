@@ -325,9 +325,9 @@ plugins:
       position: right
       priority: 10
 
-  # "confused for now", linking to the portal: the first item in the left
+  # The Confused for Now logo, linking to the portal: the first item in the left
   # sidebar, above the book's title, on every page type. One address for every
-  # book. Its size and colours are design.yaml's (edition-integrations).
+  # book. Its heights and colours are design.yaml's (edition-integrations).
   - source:
       repo: "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
       subdir: plugins/home-link
