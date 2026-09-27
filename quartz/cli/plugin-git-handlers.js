@@ -26,10 +26,28 @@ const INTERNAL_EXPORTS = new Set(["manifest", "default"])
 
 const execAsync = promisify(execCb)
 
-async function cloneWithSubdirAsync({ url, ref, subdir, pluginDir }) {
+// Platform patch (textbook platform): the commit a subdir plugin was copied from.
+const LOCKED_COMMIT_FILE = ".quartz-locked-commit"
+const lockedCommit = (commit) => (/^[0-9a-f]{40}$/.test(commit ?? "") ? commit : undefined)
+const installedSubdirCommit = (pluginDir) => {
+  try {
+    return fs.readFileSync(path.join(pluginDir, LOCKED_COMMIT_FILE), "utf8").trim()
+  } catch {
+    return undefined
+  }
+}
+
+async function cloneWithSubdirAsync({ url, ref, subdir, pluginDir, commit }) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "quartz-plugin-"))
   try {
-    if (ref) {
+    if (commit) {
+      // Platform patch (textbook platform): restoring from quartz.lock.json
+      // fetches the locked commit. Upstream cloned the default branch here and
+      // ignored the lock, so a subdir plugin silently tracked its repo's HEAD.
+      await execAsync(`git init --quiet "${tmpDir}"`)
+      await execAsync(`git fetch --quiet --depth 1 "${url}" ${commit}`, { cwd: tmpDir })
+      await execAsync("git checkout --quiet FETCH_HEAD", { cwd: tmpDir })
+    } else if (ref) {
       await execAsync(`git clone --depth 1 --branch ${ref} "${url}" "${tmpDir}"`)
     } else {
       await execAsync(`git clone --depth 1 "${url}" "${tmpDir}"`)
@@ -40,6 +58,9 @@ async function cloneWithSubdirAsync({ url, ref, subdir, pluginDir }) {
     }
     fs.cpSync(subdirPath, pluginDir, { recursive: true })
     const { stdout } = await execAsync("git rev-parse HEAD", { cwd: tmpDir })
+    // Platform patch: a subdir plugin isn't a git checkout, so record what it was
+    // copied from. `plugin install` re-clones it when the lock pins another commit.
+    fs.writeFileSync(path.join(pluginDir, LOCKED_COMMIT_FILE), stdout.trim() + "\n")
     return stdout.trim()
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -833,12 +854,15 @@ export async function handlePluginInstallUnified({
               ),
             )
             fs.mkdirSync(path.dirname(pluginDir), { recursive: true })
-            await cloneWithSubdirAsync({
+            const got = await cloneWithSubdirAsync({
               url: entry.resolved,
               ref: entry.ref,
               subdir: entry.subdir,
               pluginDir,
+              commit: lockedCommit(entry.commit),
             })
+            if (lockedCommit(entry.commit) && got !== entry.commit)
+              throw new Error(`${name}: got ${got}, but quartz.lock.json pins ${entry.commit}`)
           } else {
             console.log(
               styleText(
@@ -1052,6 +1076,17 @@ export async function handlePluginInstallUnified({
       continue
     }
 
+    // Platform patch: a subdir plugin copied from another commit than the lock
+    // pins (or from an unknown one) is removed here and cloned again below.
+    if (
+      fs.existsSync(pluginDir) &&
+      entry.subdir &&
+      lockedCommit(entry.commit) &&
+      installedSubdirCommit(pluginDir) !== entry.commit
+    ) {
+      fs.rmSync(pluginDir, { recursive: true, force: true })
+    }
+
     if (fs.existsSync(pluginDir)) {
       if (entry.subdir) {
         if (!needsBuild(pluginDir)) {
@@ -1100,12 +1135,15 @@ export async function handlePluginInstallUnified({
           if (entry.subdir) {
             console.log(styleText("cyan", `  → ${name}: cloning (subdir: ${entry.subdir})...`))
             fs.mkdirSync(path.dirname(pluginDir), { recursive: true })
-            await cloneWithSubdirAsync({
+            const got = await cloneWithSubdirAsync({
               url: entry.resolved,
               ref: entry.ref,
               subdir: entry.subdir,
               pluginDir,
+              commit: lockedCommit(entry.commit),
             })
+            if (lockedCommit(entry.commit) && got !== entry.commit)
+              throw new Error(`${name}: got ${got}, but quartz.lock.json pins ${entry.commit}`)
           } else {
             console.log(styleText("cyan", `  → ${name}: cloning...`))
             const branchArg = entry.ref ? ` --branch ${entry.ref}` : ""
