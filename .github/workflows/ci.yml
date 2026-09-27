@@ -1,7 +1,9 @@
 name: ci
 
 # The builder's proof (BOOK-ONE-TO-QUARTZ §8 step 8): its own tests, the fixture
-# book, and a full build of book one from its current main. Nothing is deployed
+# book, and a full build of a live book from its current live branch: the first
+# `live` book on the builder in the registry (book one until it was retired,
+# 27 Sep 2026). Nothing is deployed
 # here: reconcile.yml deploys (§8 step 9). When this passes on a push to main,
 # stable.yml moves the `stable` tag there (§8 step 11).
 
@@ -66,23 +68,33 @@ jobs:
       - name: The builder's and the book automation's tests (fixture book, fixture registry)
         run: node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 
-      - name: Check out book one's main, anonymously, as the builder will
+      - name: Which live book
+        id: book
+        run: |
+          read -r slug repo branch < <(node test/check-live-book.mjs --pick)
+          echo "Building $slug ($repo@$branch)."
+          { echo "slug=$slug"; echo "repo=$repo"; echo "branch=$branch"; } >> "$GITHUB_OUTPUT"
+
+      - name: Check out that book, anonymously, as the builder will
+        env:
+          REPO: ${{ steps.book.outputs.repo }}
+          BRANCH: ${{ steps.book.outputs.branch }}
         run: >
-          git -c credential.helper= clone --quiet --depth 1 --branch main
-          https://github.com/textbookproject2026-alt/textbook.git "$RUNNER_TEMP/book-one"
+          git -c credential.helper= clone --quiet --depth 1 --branch "$BRANCH"
+          "https://github.com/$REPO.git" "$RUNNER_TEMP/live-book"
 
-      - name: Build book one
-        run: ./build-book.sh "$RUNNER_TEMP/book-one" --branch main --out "$RUNNER_TEMP/book-one-site"
+      - name: Build it
+        run: ./build-book.sh "$RUNNER_TEMP/live-book" --branch "${{ steps.book.outputs.branch }}" --out "$RUNNER_TEMP/live-book-site"
 
-      - name: Check book one's build
-        run: node test/check-book-one.mjs "$RUNNER_TEMP/book-one-site" "$RUNNER_TEMP/book-one"
+      - name: Check the build
+        run: node test/check-live-book.mjs "$RUNNER_TEMP/live-book-site" "$RUNNER_TEMP/live-book" "${{ steps.book.outputs.slug }}"
 
       - name: Keep the build for a look
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: book-one-site
-          path: ${{ runner.temp }}/book-one-site
+          name: live-book-site
+          path: ${{ runner.temp }}/live-book-site
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14

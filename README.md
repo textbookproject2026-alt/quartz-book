@@ -33,12 +33,14 @@ npx quartz plugin install
 builder only reads it. `--branch` says which branch the build is for. `--out` defaults
 to `public/`. Without `--registry`, the registry is fetched from its `main`.
 
-For example, book one:
+For example, a request-made book:
 
 ```
-git clone https://github.com/textbookproject2026-alt/textbook.git ../book-one
-./build-book.sh ../book-one --branch main --out public
+git clone https://github.com/textbookproject2026-alt/ontology-for-social-research-a-criti.git ../book
+./build-book.sh ../book --branch main --out public
 ```
+
+A retired book (book one, `social-research-methods`, since 27 Sep 2026) is refused.
 
 Exit status: `0` built, `2` refused (below), anything else a failed build.
 
@@ -226,8 +228,8 @@ The header of each workflow shows its caller.
 | `builder/pages/how-to-comment.md`                                       | The reader page every book gets, from book one's `docs/how-to-comment.md`                                                                                                              |
 | `fixtures/book/`                                                        | A small book used by the tests. `chapters/QA.md` is the design fixture, moved from book one (§4c)                                                                                      |
 | `fixtures/registry.json`                                                | Three fixture books: suggest on, suggest off, and retired                                                                                                                              |
-| `test/`                                                                 | `lib.test.mjs`, `catalog.test.mjs`, `preview.test.mjs` and `automation.test.mjs` (no Quartz), `build.test.mjs` (builds the fixture), `check-book-one.mjs` (checks a build of book one) |
-| `.github/workflows/ci.yml`                                              | Runs the tests, then builds book one from its current `main` and checks it. Deploys nothing                                                                                            |
+| `test/`                                                                 | `lib.test.mjs`, `catalog.test.mjs`, `preview.test.mjs` and `automation.test.mjs` (no Quartz), `build.test.mjs` (builds the fixture), `check-live-book.mjs` (picks a live book, checks its build) |
+| `.github/workflows/ci.yml`                                              | Runs the tests, then builds the first `live` book on the builder (from the registry) and checks it. Deploys nothing                                                                    |
 | `.github/workflows/reconcile.yml`, `reconcile-book.yml`                 | Builds and deploys the books that are behind (above)                                                                                                                                   |
 | `.github/workflows/bump-extras.yml`, `design-preview.yml`, `stable.yml` | The design preview gate (above)                                                                                                                                                        |
 | `.github/workflows/book-*.yml`, `automation/`                           | Book automation (above)                                                                                                                                                                |
@@ -259,8 +261,10 @@ After a run that deployed a live branch, `reconcile` fires the portal's deploy h
 
 ```
 node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
-./build-book.sh ../book-one --branch main --out /tmp/book-one-site
-node test/check-book-one.mjs /tmp/book-one-site ../book-one
+read -r slug repo branch < <(node test/check-live-book.mjs --pick)
+git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" ../live-book
+./build-book.sh ../live-book --branch "$branch" --out /tmp/live-book-site
+node test/check-live-book.mjs /tmp/live-book-site ../live-book "$slug"
 ```
 
 ## Changing things
