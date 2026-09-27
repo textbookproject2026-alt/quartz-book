@@ -29,12 +29,12 @@ after(() => rmSync(scratch, { recursive: true, force: true }))
 const A = "a".repeat(40)
 const B = "b".repeat(40)
 
-test("the lock's extras plugins are the three from quartz-edition-extras", () => {
+test("the lock's extras plugins are the four from quartz-edition-extras", () => {
   assert.deepEqual(
     extrasPins(lock)
       .map((p) => p.name)
       .sort(),
-    ["edit-on-github", "edition-integrations", "textbook-graph"],
+    ["edit-on-github", "edition-integrations", "home-link", "textbook-graph"],
   )
   assert.throws(() => extrasPins({ plugins: {} }), /pins nothing from/)
 })
@@ -44,6 +44,7 @@ test("a bump moves every extras plugin to one commit and nothing else", () => {
   assert.deepEqual(changed.map((c) => [c.name, c.to]).sort(), [
     ["edit-on-github", A],
     ["edition-integrations", A],
+    ["home-link", A],
     ["textbook-graph", A],
   ])
   for (const [name, p] of Object.entries(bumped.plugins)) {
@@ -186,7 +187,7 @@ test("extras.mjs bump: rewrites the lock's extras commits only, and writes the p
   cpSync(join(dir, "quartz.lock.json"), join(dir, "before.json"))
   const r = run(dir, "extras.mjs", ["bump", A])
   assert.equal(r.status, 0, r.stderr)
-  assert.equal(r.out.changed, "3")
+  assert.equal(r.out.changed, "4")
   assert.equal(r.out.branch, "bot/extras-aaaaaaa")
   assert.match(r.out.title, /^Pin quartz-edition-extras aaaaaaa/)
   const after = readFileSync(join(dir, "quartz.lock.json"), "utf8")
@@ -194,14 +195,14 @@ test("extras.mjs bump: rewrites the lock's extras commits only, and writes the p
     encoding: "utf8",
   }).stdout
   const changedLines = diff.split("\n").filter((l) => /^[<>]/.test(l))
-  assert.equal(changedLines.length, 6, diff)
+  assert.equal(changedLines.length, 8, diff)
   assert.ok(
     changedLines.every((l) => /"commit": "[0-9a-f]{40}"/.test(l)),
     diff,
   )
   assert.deepEqual(
     extrasPins(JSON.parse(after)).map((p) => p.commit),
-    [A, A, A],
+    [A, A, A, A],
   )
   const body = readFileSync(join(dir, "bump-body.md"), "utf8")
   assert.match(body, /compare\/[0-9a-f]{40}\.\.\.a{40}/)
