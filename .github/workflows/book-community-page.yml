@@ -34,7 +34,9 @@ name: book-community-page
 # Sunday run does.
 #
 # Needs, in the book repo: "Allow auto-merge" (Settings -> General) for the
-# auto-merge, and HYPOTHESIS_API_TOKEN (the backup's secret) for the dashboard.
+# auto-merge, and "Allow GitHub Actions to create and approve pull requests"
+# (Settings -> Actions -> General) to open the pull request. HYPOTHESIS_API_TOKEN
+# (the backup's secret) only if the book has annotation groups.
 
 on:
   workflow_call:
