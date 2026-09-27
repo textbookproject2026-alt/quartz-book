@@ -18,7 +18,8 @@ name: book-community-page
 #       with:
 #         page: contributors
 #
-# The dashboard also needs `secrets: { HYPOTHESIS_API_TOKEN: ${{ secrets.HYPOTHESIS_API_TOKEN }} }`.
+# The dashboard takes `secrets: { HYPOTHESIS_API_TOKEN: ${{ secrets.HYPOTHESIS_API_TOKEN }} }`,
+# which a book with annotation groups needs; without it the public layer is counted anonymously.
 #
 # The job regenerates community/<page>.md in the book's checkout with
 # automation/scripts/gen-<page>.mjs, and when the page changed, pushes it to the
@@ -33,7 +34,9 @@ name: book-community-page
 # Sunday run does.
 #
 # Needs, in the book repo: "Allow auto-merge" (Settings -> General) for the
-# auto-merge, and HYPOTHESIS_API_TOKEN (the backup's secret) for the dashboard.
+# auto-merge, and "Allow GitHub Actions to create and approve pull requests"
+# (Settings -> Actions -> General) to open the pull request. HYPOTHESIS_API_TOKEN
+# (the backup's secret) only if the book has annotation groups.
 
 on:
   workflow_call:
@@ -95,14 +98,16 @@ jobs:
               ;;
           esac
 
-      - name: Check the API token secret is present
+      # No token is fine for a book with no annotation groups: the public layer is
+      # all of its margin, and gen-dashboard counts it anonymously. A book with
+      # groups needs the token, and gen-dashboard refuses without it.
+      - name: Say whether the API token secret is present
         if: inputs.page == 'dashboard'
         env:
           HYPOTHESIS_API_TOKEN: ${{ secrets.HYPOTHESIS_API_TOKEN }}
         run: |
           if [ -z "$HYPOTHESIS_API_TOKEN" ]; then
-            echo "::error::HYPOTHESIS_API_TOKEN did not reach this workflow. It is the book repo's secret (the one the annotation backup uses): add it under Settings -> Secrets and variables -> Actions, from https://hypothes.is/account/developer while signed in as the account that owns the annotation groups, and check that the caller passes it under secrets:."
-            exit 1
+            echo "::notice::No HYPOTHESIS_API_TOKEN, so the dashboard counts the public layer anonymously. That is all of the margin for a book with no annotation groups; a book with groups fails at the count instead. The token is the book repo's secret, from https://hypothes.is/account/developer, passed by the caller under secrets:."
           fi
 
       - uses: actions/checkout@v5

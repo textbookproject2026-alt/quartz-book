@@ -177,7 +177,7 @@ async function hypothesisGet(token, endpoint, searchParams) {
     try {
       res = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          ...(token && { Authorization: `Bearer ${token}` }),
           Accept: 'application/json',
           'User-Agent': 'gen-dashboard (textbook)',
         },
@@ -263,13 +263,20 @@ const emptyTally = () => ({
 
 async function collectAnnotations(site, annotationGroups) {
   const token = (process.env.HYPOTHESIS_API_TOKEN ?? '').trim();
-  if (!token) {
+  if (!token && annotationGroups.length) {
     throw new Error(
       'HYPOTHESIS_API_TOKEN is not set. Without it the private course groups come\n' +
       'back empty and this page would report a margin quieter than it is.\n' +
       '  Locally:  export HYPOTHESIS_API_TOKEN=<token from https://hypothes.is/account/developer>\n' +
       '  In CI:    the repository secret HYPOTHESIS_API_TOKEN (already used by backup-annotations.yml)',
     );
+  }
+  // A book with no annotation groups has only the public layer, which anyone can
+  // read, so no token is needed to count all of it. New books start this way
+  // (BOOK-ONE-TO-QUARTZ §8 step 23: no per-book token).
+  if (!token) {
+    warn('HYPOTHESIS_API_TOKEN is not set. This book has no annotation groups, so the public layer is all of its margin, and it is counted anonymously.');
+    return collectTallies(null, site, annotationGroups);
   }
 
   // A rejected token does not 401 — searches just come back empty with HTTP
@@ -297,6 +304,11 @@ async function collectAnnotations(site, annotationGroups) {
     }
   }
 
+  return collectTallies(token, site, annotationGroups);
+}
+
+/** Counts the public layer and each group. `token` is null for an anonymous run. */
+async function collectTallies(token, site, annotationGroups) {
   const overall = emptyTally();
 
   // Public layer. wildcard_uri covers every path under the origin; the bare
