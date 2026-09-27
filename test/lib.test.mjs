@@ -100,6 +100,33 @@ test("the shared config: graph on, SPA off, the extras present", () => {
   assert.equal(plugin(shared, "edit-on-github").options.contentDir, "")
 })
 
+test("the shared config: the home link is first in the left sidebar, on every page type", () => {
+  const home = plugin(shared, "home-link")
+  assert.equal(home.enabled, true)
+  assert.equal(home.options.url, "https://confused4now.org/")
+  assert.equal(home.layout.position, "left")
+  // Above every other left-sidebar item, the page title (10) first among them.
+  const left = shared.plugins.filter(
+    (p) => p !== home && p.enabled && p.layout?.position === "left",
+  )
+  assert.ok(left.some((p) => p.source === "github:quartz-community/page-title"))
+  for (const p of left)
+    assert.ok(p.layout.priority > home.layout.priority, JSON.stringify(p.source))
+  // No page type drops it. The 404 keeps it and nothing else of the left
+  // sidebar, in the default frame (Quartz's "minimal" frame has no sidebar).
+  const byType = shared.layout.byPageType
+  for (const [type, o] of Object.entries(byType)) {
+    assert.ok(!o.exclude?.includes("home-link"), type)
+    assert.equal(o.positions?.left, undefined, type)
+  }
+  assert.equal(byType["404"].template, "default")
+  const leftNames = left.map((p) => p.source.replace("github:quartz-community/", ""))
+  const disabledLeft = shared.plugins
+    .filter((p) => !p.enabled && p.layout?.position === "left")
+    .map((p) => p.source.replace("github:quartz-community/", ""))
+  assert.deepEqual([...byType["404"].exclude].sort(), [...leftNames, ...disabledLeft].sort())
+})
+
 test("the registry digest: stable across key order, sensitive to this book and the endpoint only", () => {
   const book = findBook(registry, "design-fixture")
   const digest = registryDigest(registry, book)

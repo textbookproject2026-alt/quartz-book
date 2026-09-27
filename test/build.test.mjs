@@ -5,8 +5,9 @@ import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { after, test } from "node:test"
+import { walkFiles } from "../builder/lib.mjs"
 
 const ROOT = new URL("..", import.meta.url).pathname
 const REGISTRY = join(ROOT, "fixtures/registry.json")
@@ -170,6 +171,18 @@ test("the fixture on its live branch", async (t) => {
     const html = b.read("chapters/chapter-01.html")
     assert.doesNotMatch(html, /href="#%5E/)
     assert.match(html, /href="#ref-bhaskar-1979"/)
+  })
+
+  await t.test("every page, the 404 too, starts its left sidebar with the home link", () => {
+    const pages = walkFiles(b.out)
+      .map((p) => relative(b.out, p))
+      .filter((p) => p.endsWith(".html"))
+    assert.ok(pages.includes("404.html") && pages.includes("how-to-comment.html"), pages.join())
+    const link =
+      '<div class="left sidebar"><p class="home-link"><a href="https://confused4now.org/">confused for now</a></p>'
+    for (const p of pages) assert.ok(b.read(p).includes(link), p)
+    // The rest of the sidebar follows it, as before.
+    assert.match(b.read("chapters/chapter-01.html"), /<\/a><\/p><h2 class="page-title">/)
   })
 
   await t.test("the output check fails once machinery is added to the output", () => {

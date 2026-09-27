@@ -325,6 +325,20 @@ plugins:
       position: right
       priority: 10
 
+  # "confused for now", linking to the portal: the first item in the left
+  # sidebar, above the book's title, on every page type. One address for every
+  # book. Its size and colours are design.yaml's (edition-integrations).
+  - source:
+      repo: "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
+      subdir: plugins/home-link
+      name: home-link
+    enabled: true
+    options:
+      url: "https://confused4now.org/"
+    layout:
+      position: left
+      priority: 5
+
   # The controls row: Edit on GitHub, View revision history, Suggest an edit.
   - source:
       repo: "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
@@ -350,9 +364,20 @@ layout:
       gap: 0.5rem
   byPageType:
     "404":
+      # Builder: the default frame, not Quartz's sidebar-less "minimal", so the
+      # 404 has the home link too, and nothing else of the left sidebar.
+      # `positions` can only empty a position, so the rest of it is excluded by
+      # name.
+      template: default
+      exclude:
+        - page-title
+        - search
+        - reader-mode
+        - darkmode
+        - spacer
+        - explorer
       positions:
         beforeBody: []
-        left: []
         right: []
     content: {}
     folder:
