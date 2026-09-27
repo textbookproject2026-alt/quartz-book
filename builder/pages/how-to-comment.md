@@ -26,7 +26,7 @@ in the text, so you can see what the person was actually talking about.
 You can also just start reading and watch for highlighted passages — those are
 places someone has already said something.
 
-Close the sidebar with the same badge, or the arrow at its top corner.
+Close the sidebar with the arrow at its top corner.
 
 ---
 
