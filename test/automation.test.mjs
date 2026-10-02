@@ -142,6 +142,46 @@ test("contributors: full-path links, no bot, the registry's names, guides on Git
   assert.doesNotMatch(page, /\[\[for-/)
 })
 
+test("contributors: anonymous in-site proposals by the name they gave, never the App", () => {
+  const book = makeBook()
+  const git = (...args) => execFileSync("git", ["-C", book.dir, ...args], { encoding: "utf8" })
+  const app = [
+    "textbook-suggest-edit[bot]",
+    "1+textbook-suggest-edit[bot]@users.noreply.github.com",
+  ]
+  const propose = (text, message) => {
+    writeFileSync(join(book.dir, "chapters/chapter-03.md"), text)
+    git("add", "-A")
+    git(
+      "-c",
+      `user.name=${app[0]}`,
+      "-c",
+      `user.email=${app[1]}`,
+      "commit",
+      "--quiet",
+      "-m",
+      message,
+    )
+  }
+  const mark = "Proposed by a reader with the in-site editor."
+  propose("# Chapter 3: Reality\n\nOne.\n", `Fix\n\n${mark}`)
+  propose("# Chapter 3: Reality\n\nTwo.\n", `Fix\n\n${mark}\n\nProposed-by: Jo <b>Reader</b> [[x]]`)
+  propose("# Chapter 3: Reality\n\nThree.\n", `Fix\n\n${mark}\n\nProposed-by: Ada Author`)
+  propose("# Chapter 3: Reality\n\nFour.\n", "Weekly housekeeping")
+  const res = run("gen-contributors.mjs", book, "--stdout")
+  assert.equal(res.status, 0, res.stderr)
+  const page = res.stdout
+  assert.match(page, /\| A reader \| 1 \|/, "a proposal from before the trailer")
+  assert.match(
+    page,
+    /\| Jo &#60;b&#62;Reader&#60;\/b&#62; &#91;&#91;x&#93;&#93; \| 1 \|/,
+    "plain text, whatever was typed",
+  )
+  assert.match(page, /\| Ada Author \| 1 \|/, "a typed name doesn't join the person's row")
+  assert.equal(page.match(/\| Ada Author \|/g).length, 2)
+  assert.doesNotMatch(page, /suggest-edit\[bot\]/)
+})
+
 test("contributors: a book without the guides gets no links to them", () => {
   const page = run(
     "gen-contributors.mjs",

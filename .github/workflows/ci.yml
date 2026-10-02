@@ -66,7 +66,7 @@ jobs:
         run: npx prettier --check builder test fixtures/registry.json quartz.config.yaml
 
       - name: The builder's and the book automation's tests (fixture book, fixture registry)
-        run: node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
+        run: node --test test/lib.test.mjs test/catalog.test.mjs test/history.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 
       - name: Which live book
         id: book
@@ -80,7 +80,7 @@ jobs:
           REPO: ${{ steps.book.outputs.repo }}
           BRANCH: ${{ steps.book.outputs.branch }}
         run: >
-          git -c credential.helper= clone --quiet --depth 1 --branch "$BRANCH"
+          git -c credential.helper= clone --quiet --branch "$BRANCH"
           "https://github.com/$REPO.git" "$RUNNER_TEMP/live-book"
 
       - name: Build it
