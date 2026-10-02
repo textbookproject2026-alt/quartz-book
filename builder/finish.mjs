@@ -7,6 +7,7 @@ import { dirname, join, relative, sep } from "node:path"
 import YAML from "yaml"
 import {
   CATALOG_PATH,
+  HISTORY_DIR,
   HOW_TO_COMMENT,
   MARKER_PATH,
   buildCatalog,
@@ -83,6 +84,12 @@ const catalog = buildCatalog({
   })),
 })
 write(CATALOG_PATH, JSON.stringify(catalog, null, 2) + "\n")
+
+// Each page's revision list, for the History panel (lib.mjs, "Page history").
+const revisions = JSON.parse(readFileSync(join(workDir, "revisions.json"), "utf8"))
+for (const { relPath, slug } of pages)
+  if (revisions[relPath])
+    write(`${HISTORY_DIR}/${slug}.json`, JSON.stringify(revisions[relPath]) + "\n")
 
 // The allowlist, checked on what was actually produced (§8 step 8): a file from
 // outside it fails the build rather than going live.

@@ -123,7 +123,7 @@ jobs:
           commit="$(git -c credential.helper= ls-remote --exit-code "https://github.com/$REPO.git" "refs/heads/$BRANCH" | cut -f1)"
           git init --quiet "$RUNNER_TEMP/book"
           cd "$RUNNER_TEMP/book"
-          git -c credential.helper= fetch --quiet --depth 60 "https://github.com/$REPO.git" "$commit"
+          git -c credential.helper= fetch --quiet "https://github.com/$REPO.git" "$commit"
           git checkout --quiet --detach FETCH_HEAD
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 

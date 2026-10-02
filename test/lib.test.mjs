@@ -51,6 +51,14 @@ test("suggest-edit: the platform endpoint when the book has it on, empty when of
   assert.equal(off.suggestEndpoint, "")
 })
 
+test("history: every book gets the revision endpoint, whatever suggest_edit says", () => {
+  const off = bookOptions(registry, findBook(registry, "no-suggest-fixture"), "main")
+  assert.equal(
+    off.revisionEndpoint,
+    "https://suggest-edit.example.invalid/api/page-revision?book=no-suggest-fixture",
+  )
+})
+
 test("suggest-edit on with no platform endpoint is refused, not built without the button", () => {
   const noEndpoint = { ...registry, platform: {} }
   assert.throws(
@@ -75,6 +83,7 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
     branch: "drafts",
     contentDir: "",
     suggestEndpoint: "https://suggest-edit.example.invalid/api/suggest-edit",
+    revisionEndpoint: "https://suggest-edit.example.invalid/api/page-revision?book=design-fixture",
   })
   assert.equal(
     plugin(out, "edition-integrations").options.siteDomain,

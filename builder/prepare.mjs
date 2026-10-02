@@ -16,6 +16,7 @@ import YAML from "yaml"
 import {
   ALLOWLIST,
   BuildRefused,
+  COMMIT_INFO_FORMAT,
   GIT_LOG_FORMAT,
   HISTORY_COMMITS,
   HOW_TO_COMMENT,
@@ -24,9 +25,12 @@ import {
   findBook,
   howToCommentClash,
   ignorePatternsFor,
+  parseCommitInfo,
+  parseFollowLog,
   parseGitLog,
   registryDigest,
   renderConfig,
+  revisionsOf,
 } from "./lib.mjs"
 
 const BUILDER = resolve(import.meta.dirname, "..")
@@ -113,6 +117,37 @@ try {
     : []
   const commits = parseGitLog(log, shallow)
   writeFileSync(join(workDir, "history.json"), JSON.stringify(commits) + "\n")
+  // Each page's revisions (the History panel), from the whole history: the
+  // workflows check books out in full for this. A shallow checkout would cut
+  // every list short, so it's refused rather than published incomplete.
+  if (shallow.length)
+    throw new BuildRefused(
+      "the book checkout is shallow, so page histories would be cut short. Fetch the whole history (no --depth).",
+    )
+  const automation = new Set(
+    (registry.platform?.automation_logins ?? []).map((l) => l.toLowerCase()),
+  )
+  const info = parseCommitInfo(
+    git(book, "log", "--no-merges", "-z", `--format=${COMMIT_INFO_FORMAT}`),
+  )
+  const revisions = {}
+  for (const file of git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0")) {
+    if (!file.endsWith(".md")) continue
+    const follow = git(
+      book,
+      "log",
+      "--follow",
+      "--no-merges",
+      "-M",
+      "--name-status",
+      "-z",
+      "--format=%x1e%H",
+      "--",
+      file,
+    )
+    revisions[file] = revisionsOf(parseFollowLog(follow), info, automation)
+  }
+  writeFileSync(join(workDir, "revisions.json"), JSON.stringify(revisions) + "\n")
   console.log(
     `prepare: ${facts.slug} @ ${facts.branch} (${facts.bookCommit.slice(0, 7)}), ${facts.noindex ? "preview, noindex" : "live branch"}, suggest ${facts.suggestEndpoint ? "on" : "off"}`,
   )
