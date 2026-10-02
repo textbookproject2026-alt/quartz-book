@@ -741,6 +741,10 @@ export function parseFollowLog(text) {
   return out
 }
 
+/** The name an anonymous in-site proposal gave: its commit's last `Proposed-by:` trailer. */
+export const proposedBy = (body = "") =>
+  [...body.matchAll(/^Proposed-by:[ \t]*(.+?)[ \t]*$/gm)].pop()?.[1].slice(0, 80) || null
+
 const NOREPLY = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.github\.com$/i
 
 /**
@@ -749,8 +753,9 @@ const NOREPLY = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.
  * the author site commit that way), else the name git has (%aN, which respects
  * .mailmap, as the Contributors page). Automation is never credited: an App or
  * bot commit is the Co-authored-by people it carries, an anonymous in-site
- * proposal is "a reader" (the name they gave is in the pull request, not in git;
- * /api/page-revision returns it when the revision is opened), and anything else
+ * proposal is the name its Proposed-by: trailer gives, or "a reader" for one from
+ * before the trailer (the panel asks /api/page-revision for those names when the
+ * list opens), and anything else
  * is the platform's housekeeping. `automation` is the registry's
  * platform.automation_logins, lower-cased.
  */
@@ -763,6 +768,8 @@ export function revisionAuthor({ name = "", email = "", body = "" }, automation 
     .filter((m) => !isBot(m[1], m[2]))
     .map((m) => person(m[1], m[2]))
   if (co.length) return { who: [...new Set(co)].join(", ") }
+  const given = proposedBy(body)
+  if (given) return { who: given }
   if (/Proposed by a reader with the in-site editor\.|^Proposed in #\d+\./m.test(body))
     return { who: "a reader", reader: true }
   return { who: "automation", automation: true }

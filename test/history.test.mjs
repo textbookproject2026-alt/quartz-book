@@ -164,6 +164,20 @@ test("revisionAuthor: never the App; a bot's human co-authors; plain names as gi
     }),
     { who: "Bo" },
   )
+  assert.deepEqual(
+    revisionAuthor({
+      name: APP[0],
+      email: APP[1],
+      body: "Fix\n\nProposed by a reader with the in-site editor.\n\nProposed-by: Jo Reader",
+    }),
+    { who: "Jo Reader" },
+    "an anonymous proposal's own name, from its trailer",
+  )
+  assert.deepEqual(
+    revisionAuthor({ name: "Ann", email: "ann@example.org", body: "x\n\nProposed-by: Someone Else" }),
+    { who: "Ann" },
+    "a person's commit is theirs, whatever its trailers say",
+  )
   assert.deepEqual(revisionAuthor({ name: APP[0], email: APP[1], body: "Something else" }), {
     who: "automation",
     automation: true,
