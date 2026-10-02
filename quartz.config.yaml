@@ -35,9 +35,11 @@ configuration:
   theme:
     fontOrigin: googleFonts
     cdnCaching: true
+    # Named so Quartz loads these families and not Inter; design.ts sets the
+    # font variables itself from design.yaml (text: Source Serif 4, ui: Source Sans 3).
     typography:
-      header: Inter
-      body: Inter
+      header: Source Sans 3
+      body: Source Serif 4
       code: JetBrains Mono
     colors:
       lightMode:
@@ -190,9 +192,10 @@ plugins:
     layout:
       position: left
       priority: 10
-  # Dark mode stays off until the client decides D12 (BOOK-ONE-TO-QUARTZ §4c).
+  # The reader's dark-mode toggle (decided 28 Sep 2026, palette v3 of 2 Oct). It
+  # follows the system until used; the palette itself comes from design.yaml.
   - source: github:quartz-community/darkmode
-    enabled: false
+    enabled: true
     layout:
       position: left
       priority: 30
