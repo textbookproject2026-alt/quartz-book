@@ -202,6 +202,19 @@ test("the fixture on its live branch", async (t) => {
     assert.ok(concepts.includes("The Three Domains"), `concepts: ${concepts}`)
     assert.ok(Array.isArray(c.recent))
   })
+  await t.test("assets/README.md isn't a page; the pictures beside it are published", () => {
+    assert.equal(b.has("assets/readme.html"), false)
+    assert.equal(b.has("assets/index.html"), false)
+    assert.equal(b.has("assets/chapter-01/square.png"), true)
+    assert.doesNotMatch(b.read("static/contentIndex.json"), /"assets\//)
+  })
+  await t.test("the head carries index.md's Contents order, for the explorer", () => {
+    assert.ok(
+      b
+        .read("chapters/chapter-01.html")
+        .includes('var ORDER = ["chapters/chapter-01","chapters/qa"]'),
+    )
+  })
   await t.test("the pinned extras are in: same-page citations work", () => {
     const html = b.read("chapters/chapter-01.html")
     assert.doesNotMatch(html, /href="#%5E/)

@@ -131,8 +131,9 @@ export const licenceLink = (id) => ({
 /**
  * Quartz's config for one book: the shared config with the "SET PER BOOK"
  * values filled in. `config` is the parsed quartz.config.yaml; it isn't changed.
+ * `explorerOrder` is the book's contentsOrder().
  */
-export function renderConfig(config, opts, ignorePatterns) {
+export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
   const out = structuredClone(config)
   out.configuration.pageTitle = opts.title
   out.configuration.baseUrl = opts.domain
@@ -150,6 +151,7 @@ export function renderConfig(config, opts, ignorePatterns) {
   Object.assign(plugin("edition-integrations").options, {
     plausibleScriptSrc: opts.plausibleScriptSrc,
     siteDomain: opts.domain,
+    explorerOrder,
   })
   Object.assign(plugin("edit-on-github").options, {
     repo: opts.repo,
@@ -162,6 +164,46 @@ export function renderConfig(config, opts, ignorePatterns) {
 }
 
 /**
+ * The book's reading order: the link targets, in order, of the list under
+ * "## Contents" in its index.md (up to the next heading), as Quartz slugs, for
+ * edition-integrations' explorerOrder. Each list item's first link counts:
+ * [[target|label]], [[target]] or [label](target). A target loses a leading
+ * ./ or /, a trailing .md and any #fragment; spaces become hyphens, and it is
+ * lowercased, as Quartz's slugs are. No Contents heading (or no index.md,
+ * passed as "") gives [].
+ */
+export function contentsOrder(indexMarkdown) {
+  const lines = indexMarkdown.split(/\r?\n/)
+  const start = lines.findIndex((l) => /^##\s+Contents\s*$/i.test(l))
+  if (start === -1) return []
+  const order = []
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,6}\s/.test(line)) break
+    if (!/^\s*(?:[-*+]|\d+[.)])\s/.test(line)) continue
+    const m = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]|\[[^\]]*\]\(([^)\s]+)[^)]*\)/.exec(line)
+    if (!m) continue
+    let target = m[1] ?? m[2]
+    try {
+      target = decodeURI(target)
+    } catch {
+      // a stray %: keep it as written
+    }
+    const slug = target
+      .split("#")[0]
+      .trim()
+      .replace(/^\.?\//, "")
+      .replace(/\.md$/i, "")
+      .replace(/\s+/g, "-")
+      .toLowerCase()
+    if (slug) order.push(slug)
+  }
+  return order
+}
+
+/** Markdown under assets/ is the book's own notes (the authoring app's README), not pages. */
+export const ASSET_NOTES = "assets/**/*.md"
+
+/**
  * Quartz ignorePatterns for everything at the top of the book repo that isn't on
  * the allowlist. `entries` are the repo root's names. Both the name and
  * everything under it are listed, so a folder is ignored whole.
@@ -171,6 +213,7 @@ export function ignorePatternsFor(entries) {
     .filter((name) => name !== ".git" && !ALLOWLIST.includes(name))
     .sort()
     .flatMap((name) => [name, `${name}/**`])
+    .concat(ASSET_NOTES)
 }
 
 /** Quartz's slug for a root-level name, near enough to catch a collision. */

@@ -1,12 +1,14 @@
 // The builder's decisions (builder/lib.mjs), without running Quartz.
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
+import { matchesGlob } from "node:path"
 import { test } from "node:test"
 import YAML from "yaml"
 import {
   BuildRefused,
   addCanonical,
   bookOptions,
+  contentsOrder,
   branchAlias,
   findBook,
   howToCommentClash,
@@ -76,7 +78,10 @@ test("only the live branch is indexable (D13)", () => {
 
 test("the rendered config: contentDir is empty, and the per-book values come from the registry", () => {
   const opts = bookOptions(registry, findBook(registry, "design-fixture"), "drafts")
-  const out = renderConfig(shared, opts, ["README.md", "README.md/**"])
+  const out = renderConfig(shared, opts, ["README.md", "README.md/**"], ["chapters/introduction"])
+  assert.deepEqual(plugin(out, "edition-integrations").options.explorerOrder, [
+    "chapters/introduction",
+  ])
   const edit = plugin(out, "edit-on-github").options
   assert.deepEqual(edit, {
     repo: "textbookproject2026-alt/quartz-book",
@@ -231,7 +236,52 @@ test("everything at the repo root outside the allowlist is ignored, whole", () =
     "configure.mjs/**",
     "textbook.config.json",
     "textbook.config.json/**",
+    "assets/**/*.md",
   ])
+})
+
+test("markdown under assets/ is ignored, its pictures aren't", () => {
+  const ignored = (path) => ignorePatternsFor(["assets"]).some((g) => matchesGlob(path, g))
+  assert.equal(ignored("assets/README.md"), true)
+  assert.equal(ignored("assets/chapter-02/notes.md"), true)
+  assert.equal(ignored("assets/chapter-02/figure-1.png"), false)
+  assert.equal(ignored("chapters/chapter-02.md"), false)
+})
+
+test("contentsOrder: the Contents list's link targets, as slugs, in order", () => {
+  const index = [
+    "# A book",
+    "",
+    "Intro text with [[chapters/chapter-09|a link]] that isn't in the list.",
+    "",
+    "## Contents",
+    "",
+    "- **[[chapters/introduction|Introduction]]**",
+    "- **[[chapters/chapter-01]]**",
+    "  One line on what the chapter does, with [[glossary]] in it.",
+    "- **[Chapter 2](./chapters/chapter-02.md)**",
+    "- [Chapter 10](/chapters/chapter-10.md#start)",
+    "- [[chapters/Definitions/The Three Domains#Part|Domains]]",
+    "1. [Glossary](glossary.md)",
+    "- No link here",
+    "",
+    "## Concept index",
+    "",
+    "- [[Example concept]]",
+  ].join("\n")
+  assert.deepEqual(contentsOrder(index), [
+    "chapters/introduction",
+    "chapters/chapter-01",
+    "chapters/chapter-02",
+    "chapters/chapter-10",
+    "chapters/definitions/the-three-domains",
+    "glossary",
+  ])
+})
+
+test("contentsOrder: no Contents heading, or no index.md, gives []", () => {
+  assert.deepEqual(contentsOrder("# A book\n\n- [[chapters/chapter-01]]\n"), [])
+  assert.deepEqual(contentsOrder(""), [])
 })
 
 test("a book's own how-to-comment clashes with the builder's page", () => {
