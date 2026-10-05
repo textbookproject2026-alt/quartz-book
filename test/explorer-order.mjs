@@ -1,13 +1,16 @@
-// The explorer follows the book's Contents (decision of 1 Oct 2026), in a real
-// browser, since the explorer is drawn by script:
+// The explorer and the chapters folder page follow the book's Contents
+// (decision of 1 Oct 2026), in a real browser, since the explorer is drawn by
+// script:
 //
 //   node test/explorer-order.mjs <site base URL> <book checkout>
 //
 // It opens the first chapter in the Contents of the checkout's index.md at
 // 1280x800 and asserts that the explorer's chapters folder lists the Contents'
 // chapters first, in order, so the folder's first page link is the first
-// Contents entry under chapters/. Browser: `npx playwright install chromium`
-// (CI), or set PW_CHROMIUM_CHANNEL=chrome to use an installed Chrome.
+// Contents entry under chapters/. It then opens /chapters/ and asserts the
+// same of the folder page's listing (builder/lib.mjs, orderFolderListing).
+// Browser: `npx playwright install chromium` (CI), or set
+// PW_CHROMIUM_CHANNEL=chrome to use an installed Chrome.
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -41,6 +44,14 @@ try {
   )
   assert.deepEqual(listed.slice(0, chapters.length), chapters)
   console.log(`pass  the explorer lists ${chapters.length} chapters in Contents order`)
+
+  await page.goto(new URL("chapters/", base).href, { waitUntil: "load" })
+  const items = await page.$$eval("ul.section-ul > li.section-li h3 > a", (as) =>
+    as.map((a) => new URL(a.href).pathname.replace(/^\//, "").replace(/\.html$/, "")),
+  )
+  console.log(`folder page's chapters: ${items.join(", ")}`)
+  assert.deepEqual(items.slice(0, chapters.length), chapters)
+  console.log(`pass  /chapters/ lists ${chapters.length} chapters in Contents order`)
 } finally {
   await browser.close()
 }

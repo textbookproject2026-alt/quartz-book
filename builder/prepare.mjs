@@ -97,6 +97,7 @@ try {
     builderCommit: git(BUILDER, "rev-parse", "HEAD") + (builderDirty ? "-dirty" : ""),
     registryDigest: registryDigest(registry, entry),
     status: entry.status,
+    contentsOrder: order,
   }
   writeFileSync(join(workDir, "facts.json"), JSON.stringify(facts, null, 2) + "\n")
 

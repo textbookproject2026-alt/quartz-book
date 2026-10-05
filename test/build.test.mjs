@@ -215,6 +215,16 @@ test("the fixture on its live branch", async (t) => {
         .includes('var ORDER = ["chapters/chapter-01","chapters/qa"]'),
     )
   })
+  await t.test("the chapters folder page lists its pages in Contents order", () => {
+    const links = [
+      ...b.read("chapters/index.html").matchAll(/<h3><a href="([^"]*)" class="internal">/g),
+    ].map((m) => m[1])
+    assert.deepEqual(links, [
+      "../chapters/chapter-01",
+      "../chapters/qa",
+      "../chapters/definitions/",
+    ])
+  })
   await t.test("the pinned extras are in: same-page citations work", () => {
     const html = b.read("chapters/chapter-01.html")
     assert.doesNotMatch(html, /href="#%5E/)

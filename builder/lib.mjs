@@ -319,6 +319,74 @@ export function addCanonical(html, domain, url) {
 }
 
 /**
+ * A folder or tag listing (folder-page's <ul class="section-ul">) in the
+ * book's Contents order, as the explorer is: the plugin sorts by title alone,
+ * and its sort option is a function, which quartz.config.yaml can't hold.
+ * `order` is contentsOrder(); `pageSlug` is the listing page's own slug
+ * ("chapters/index"), which its relative hrefs resolve against. A subfolder
+ * ranks by its first listed page. Unlisted items follow, by title, with
+ * Chapter 2 before Chapter 10. Items are moved whole, never rewritten. A page
+ * without the list, or with one that doesn't cut cleanly, is returned unchanged.
+ */
+export function orderFolderListing(html, pageSlug, order) {
+  const open = '<ul class="section-ul">'
+  const start = html.indexOf(open)
+  if (start === -1) return html
+  // Cut the top-level <li>s by tracking depth: each holds a nested <ul class="tags">.
+  const tag = /<(\/?)(ul|li)\b[^>]*>/g
+  tag.lastIndex = start + open.length
+  const items = []
+  let depth = 0
+  let itemStart = -1
+  let last = tag.lastIndex
+  let end = -1
+  for (let m; (m = tag.exec(html)); ) {
+    const closing = m[1] === "/"
+    if (depth === 0) {
+      if (closing && m[2] === "ul") {
+        if (html.slice(last, m.index).trim()) return html
+        end = m.index
+        break
+      }
+      if (closing || m[2] !== "li" || html.slice(last, m.index).trim()) return html
+      itemStart = m.index
+      depth = 1
+    } else if (closing) {
+      if (--depth === 0) {
+        if (m[2] !== "li") return html
+        items.push(html.slice(itemStart, tag.lastIndex))
+        last = tag.lastIndex
+      }
+    } else depth++
+  }
+  if (end === -1) return html
+
+  const ranked = []
+  for (const li of items) {
+    const a = /<h3><a href="([^"]*)" class="internal">([\s\S]*?)<\/a><\/h3>/.exec(li)
+    if (!a) return html
+    let slug = new URL(a[1], `https://x/${pageSlug}`).pathname.slice(1)
+    try {
+      slug = decodeURIComponent(slug)
+    } catch {
+      // a stray %: keep it as written
+    }
+    // A subfolder's href ends in "/" (its slug is "<folder>/index").
+    const rank =
+      slug === "" || slug.endsWith("/")
+        ? order.findIndex((s) => s.startsWith(slug))
+        : order.indexOf(slug)
+    ranked.push({ li, rank: rank === -1 ? order.length : rank, title: a[2] })
+  }
+  ranked.sort(
+    (x, y) =>
+      x.rank - y.rank ||
+      x.title.localeCompare(y.title, undefined, { numeric: true, sensitivity: "base" }),
+  )
+  return html.slice(0, start + open.length) + ranked.map((r) => r.li).join("") + html.slice(end)
+}
+
+/**
  * The builder's own page has no file in the book, so its Edit and History
  * links would 404. Drop the controls row; the annotation badge then sits under
  * the title, as it does on any page without a row.

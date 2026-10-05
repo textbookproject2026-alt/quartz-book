@@ -102,7 +102,7 @@ jobs:
           sleep 1
           node test/phone-layout.mjs http://127.0.0.1:8801/ "$RUNNER_TEMP/phone-layout"
 
-      - name: The explorer follows index.md's Contents
+      - name: The explorer and the folder page follow index.md's Contents
         run: |
           node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8802 &
           sleep 1
