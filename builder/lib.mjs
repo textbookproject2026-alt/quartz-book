@@ -925,3 +925,21 @@ export function branchFindings({ live_branch: live, drafts_branch: drafts }, { c
   }
   return found
 }
+
+/**
+ * Whether the books App can keep a book's issue (05 Oct): null when the repo is in
+ * its installation (`installed`, full names), else why not. A repo outside `owner`
+ * can't have the App at all (platform-test-book); one inside it is a gap to fix.
+ */
+export function booksAppGap(repo, installed, owner) {
+  if (installed.has(repo)) return null
+  return repo.split("/")[0] === owner
+    ? {
+        fix: true,
+        why: `${repo} isn't in the books App's installation, so it gets no issue. Add it.`,
+      }
+    : {
+        fix: false,
+        why: `${repo} is outside ${owner}, where the books App can't be installed, so it gets no issue.`,
+      }
+}
