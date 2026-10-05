@@ -8,6 +8,7 @@ import {
   BuildRefused,
   addCanonical,
   bookOptions,
+  branchFindings,
   contentsOrder,
   branchAlias,
   findBook,
@@ -612,4 +613,29 @@ test("a page without a listing, or with one that doesn't cut cleanly, is unchang
   assert.equal(orderFolderListing(unclosed, "chapters/index", []), unclosed)
   const stray = listing(chapters[1], "<p>stray</p>", chapters[0])
   assert.equal(orderFolderListing(stray, "chapters/index", []), stray)
+})
+
+test("branchFindings flags work drafts doesn't have, and nothing the platform makes", () => {
+  const content = { live_branch: "main", drafts_branch: "drafts" }
+  const found = branchFindings(content, {
+    changed: {
+      main: 2,
+      "add-chapters": 3,
+      done: 0,
+      "proposed-edits/x": 1,
+      "chore/contributors-update": 1,
+      backups: 4,
+    },
+    pulls: [
+      { number: 4, head: "drafts" },
+      { number: 5, head: "add-chapters" },
+      { number: 6, head: "chore/dashboard-update" },
+    ],
+  })
+  assert.equal(found.length, 3)
+  assert.match(found[0], /^`main` changes 2 file\(s\) that `drafts` doesn't have/)
+  assert.match(found[1], /^`add-chapters` changes 3 file\(s\).*nothing builds/)
+  assert.match(found[2], /^Pull request #5 goes into `main` from `add-chapters`/)
+  // After publishing, main is a merge commit ahead of drafts but changes nothing.
+  assert.deepEqual(branchFindings(content, { changed: { main: 0 }, pulls: [] }), [])
 })
