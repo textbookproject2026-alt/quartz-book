@@ -202,6 +202,10 @@ jobs:
         with:
           node-version-file: .node-version
 
+      - name: The books org, from the registry
+        id: owner
+        run: echo "owner=$(curl -fsS https://raw.githubusercontent.com/textbookproject2026-alt/textbook-registry/main/registry.json | jq -er .platform.books_owner)" >> "$GITHUB_OUTPUT"
+
       - name: The books App's token, for the issues
         id: app
         if: vars.BOOKS_APP_CLIENT_ID != ''
@@ -209,7 +213,7 @@ jobs:
         with:
           client-id: ${{ vars.BOOKS_APP_CLIENT_ID }}
           private-key: ${{ secrets.BOOKS_APP_PRIVATE_KEY }}
-          owner: textbookproject2026-alt
+          owner: ${{ steps.owner.outputs.owner }}
           permission-issues: write
 
       - name: Flag work outside drafts
