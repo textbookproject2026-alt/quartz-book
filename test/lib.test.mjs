@@ -17,6 +17,7 @@ import {
   markerCurrent,
   markerDifference,
   markerUrl,
+  orderFolderListing,
   outputAllowed,
   publishUrl,
   reconcileTargets,
@@ -541,4 +542,74 @@ test("a served marker is current only when every field matches what would be bui
   }
   assert.equal(markerDifference({ ...served, builder_commit: "x" }, want), "builder_commit changed")
   assert.equal(markerDifference(null, want), "nothing served yet")
+})
+
+// folder-page's listing markup, as Quartz renders it (one item per page).
+const item = (href, title, tags = "") =>
+  `<li class="section-li"><div class="section"><p class="meta"></p><div class="desc"><h3><a href="${href}" class="internal">${title}</a></h3></div><ul class="tags">${tags}</ul></div></li>`
+const listing = (...items) =>
+  `<html><body><div class="page-listing"><ul class="section-ul">${items.join("")}</ul></div><ul><li>footer</li></ul></body></html>`
+const titlesOf = (html) =>
+  [...html.matchAll(/class="internal">([^<]*)<\/a><\/h3>/g)].map((m) => m[1])
+const chapters = [
+  item("../chapters/chapter-1", "Chapter 1"),
+  item("../chapters/chapter-10", "Chapter 10"),
+  item("../chapters/chapter-11", "Chapter 11"),
+  item("../chapters/chapter-2", "Chapter 2"),
+  item("../chapters/definitions/", "Definitions"),
+  item("../chapters/introduction", "Introduction"),
+]
+
+test("a folder listing follows the Contents; a subfolder ranks by its first listed page", () => {
+  const order = [
+    "chapters/introduction",
+    "chapters/chapter-1",
+    "chapters/definitions/the-three-domains",
+    "chapters/chapter-2",
+  ]
+  const out = orderFolderListing(listing(...chapters), "chapters/index", order)
+  assert.deepEqual(titlesOf(out), [
+    "Introduction",
+    "Chapter 1",
+    "Definitions",
+    "Chapter 2",
+    // unlisted, by title, numerically
+    "Chapter 10",
+    "Chapter 11",
+  ])
+  assert.equal((out.match(/class="section-li"/g) ?? []).length, chapters.length)
+  assert.ok(out.endsWith("</ul></div><ul><li>footer</li></ul></body></html>"))
+})
+
+test("with no Contents a folder listing is in numeric title order", () => {
+  assert.deepEqual(titlesOf(orderFolderListing(listing(...chapters), "chapters/index", [])), [
+    "Chapter 1",
+    "Chapter 2",
+    "Chapter 10",
+    "Chapter 11",
+    "Definitions",
+    "Introduction",
+  ])
+})
+
+test("a listing item's nested tags list moves byte-for-byte", () => {
+  const tagged = item(
+    "../chapters/chapter-2",
+    "Chapter 2",
+    '<li><a class="internal tag-link" href="../tags/realism">realism</a></li><li><a class="internal tag-link" href="../tags/method">method</a></li>',
+  )
+  const html = listing(item("../chapters/chapter-10", "Chapter 10"), tagged)
+  const out = orderFolderListing(html, "chapters/index", [])
+  assert.equal(out, listing(tagged, item("../chapters/chapter-10", "Chapter 10")))
+  // a tag page's listing resolves against its own slug
+  assert.equal(orderFolderListing(html, "tags/realism", []), out)
+})
+
+test("a page without a listing, or with one that doesn't cut cleanly, is unchanged", () => {
+  const plain = "<html><body><ul><li>x</li></ul></body></html>"
+  assert.equal(orderFolderListing(plain, "chapters/index", []), plain)
+  const unclosed = listing(...chapters).replace(/<\/ul><\/div><ul><li>footer.*$/, "")
+  assert.equal(orderFolderListing(unclosed, "chapters/index", []), unclosed)
+  const stray = listing(chapters[1], "<p>stray</p>", chapters[0])
+  assert.equal(orderFolderListing(stray, "chapters/index", []), stray)
 })
