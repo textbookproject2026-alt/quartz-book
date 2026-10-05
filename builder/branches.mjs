@@ -8,7 +8,7 @@
 // Environment: GH_TOKEN (reads; the book repos are public), ISSUES_TOKEN
 // (optional), REGISTRY_FILE (a local registry.json, for testing).
 import { appendFileSync, readFileSync } from "node:fs"
-import { REGISTRY_URL, branchFindings, reconcileTargets } from "./lib.mjs"
+import { REGISTRY_URL, booksAppGap, branchFindings, reconcileTargets } from "./lib.mjs"
 
 const TITLE = "Changes outside drafts"
 const FOOT =
@@ -78,6 +78,17 @@ const registry = process.env.REGISTRY_FILE
 const books = registry.books.filter((b) =>
   reconcileTargets(registry).some((t) => t.slug === b.slug),
 )
+// The books App's token reaches only the repos in its installation (the owner's).
+// A registered book that isn't in it is reported; one in another account (the
+// test book) can't be, and is skipped quietly.
+const OWNER = "textbookproject2026-alt"
+const installed = process.env.ISSUES_TOKEN
+  ? new Set(
+      (
+        await gh("/installation/repositories?per_page=100", { token: process.env.ISSUES_TOKEN })
+      ).repositories.map((r) => r.full_name),
+    )
+  : null
 summary("### Changes outside drafts\n\n")
 for (const book of books.filter((b) => b.content.drafts_branch)) {
   try {
@@ -88,8 +99,13 @@ for (const book of books.filter((b) => b.content.drafts_branch)) {
         : `**${book.slug}**: nothing flagged.\n\n`,
     )
     for (const f of found) console.log(`::warning title=${book.slug}::${f.replaceAll("`", "")}`)
-    if (process.env.ISSUES_TOKEN)
-      await keepIssue(book.content.repo, found, process.env.ISSUES_TOKEN)
+    if (!installed) continue
+    const gap = booksAppGap(book.content.repo, installed, OWNER)
+    if (!gap) await keepIssue(book.content.repo, found, process.env.ISSUES_TOKEN)
+    else {
+      summary(`_${gap.why}_\n\n`)
+      if (gap.fix) console.log(`::warning title=${book.slug}::${gap.why}`)
+    }
   } catch (err) {
     console.log(`::warning title=${book.slug}::the branch check couldn't finish: ${err.message}`)
   }

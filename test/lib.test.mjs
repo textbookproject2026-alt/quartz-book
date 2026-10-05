@@ -8,6 +8,7 @@ import {
   BuildRefused,
   addCanonical,
   bookOptions,
+  booksAppGap,
   branchFindings,
   contentsOrder,
   branchAlias,
@@ -638,4 +639,11 @@ test("branchFindings flags work drafts doesn't have, and nothing the platform ma
   assert.match(found[2], /^Pull request #5 goes into `main` from `add-chapters`/)
   // After publishing, main is a merge commit ahead of drafts but changes nothing.
   assert.deepEqual(branchFindings(content, { changed: { main: 0 }, pulls: [] }), [])
+})
+
+test("booksAppGap: in the installation, missing from it, or outside the owner", () => {
+  const installed = new Set(["me/book-a"])
+  assert.equal(booksAppGap("me/book-a", installed, "me"), null)
+  assert.equal(booksAppGap("me/book-b", installed, "me").fix, true)
+  assert.equal(booksAppGap("other/test-book", installed, "me").fix, false)
 })
