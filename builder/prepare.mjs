@@ -22,6 +22,7 @@ import {
   HOW_TO_COMMENT,
   REGISTRY_URL,
   bookOptions,
+  contentsOrder,
   findBook,
   howToCommentClash,
   ignorePatternsFor,
@@ -84,7 +85,9 @@ try {
   writeFileSync(join(content, `${HOW_TO_COMMENT}.md`), page)
 
   const shared = YAML.parse(readFileSync(join(BUILDER, "quartz.config.yaml"), "utf8"))
-  const rendered = renderConfig(shared, opts, ignorePatternsFor(entries))
+  const indexFile = join(book, "index.md")
+  const order = contentsOrder(existsSync(indexFile) ? readFileSync(indexFile, "utf8") : "")
+  const rendered = renderConfig(shared, opts, ignorePatternsFor(entries), order)
   writeFileSync(join(workDir, "quartz.config.yaml"), YAML.stringify(rendered))
 
   const builderDirty = git(BUILDER, "status", "--porcelain", "--untracked-files=no") !== ""

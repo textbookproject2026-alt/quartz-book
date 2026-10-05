@@ -12,7 +12,7 @@ import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { REGISTRY_URL } from "../builder/lib.mjs"
+import { REGISTRY_URL, contentsOrder } from "../builder/lib.mjs"
 
 const registry = await (await fetch(REGISTRY_URL)).json()
 const liveOnBuilder = registry.books.filter(
@@ -94,6 +94,17 @@ check("Plausible counts on the book's domain only", () => {
 check("the graph is on, and the builder's /how-to-comment is there", () => {
   assert.match(pageHtml(), /class="graph"/)
   assert.match(read("how-to-comment.html"), /<title>Commenting in the Margins<\/title>/)
+})
+
+check("the page's head carries index.md's Contents order, for the explorer", () => {
+  const order = contentsOrder(readFileSync(join(checkout, "index.md"), "utf8"))
+  assert.ok(order.length, "index.md has no Contents list")
+  assert.ok(pageHtml().includes(`var ORDER = ${JSON.stringify(order)}`), "no explorer order")
+})
+
+check("markdown under assets/ isn't published (the authoring app's assets/README.md)", () => {
+  const notes = catalog.pages.filter((p) => p.path.startsWith("/assets/"))
+  assert.deepEqual(notes, [])
 })
 
 console.log(`book: ${slug} (${book.content.repo}), page checked: ${page?.path}`)
