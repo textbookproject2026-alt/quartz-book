@@ -894,3 +894,34 @@ export const revisionsOf = (follow, info, automation) =>
       const c = info.get(sha)
       return { sha, date: c.date, ...revisionAuthor(c, automation), message: c.subject, path }
     })
+
+// Branches the platform makes itself, never built and expected to differ from
+// drafts: reader edits (proposed-edits/*, into drafts), the Sunday community pages
+// and the config render (chore/*), and the annotation backups.
+const PLATFORM_BRANCH = /^(proposed-edits\/|chore\/|backups$)/
+
+/**
+ * What the reconcile tick flags in one book (05 Oct): work its builds never see,
+ * or that reached the live branch without going through drafts. `changed` maps
+ * each branch to how many files it changes since it left drafts (0 when drafts
+ * has everything, as after publishing, whose merge commit adds nothing); `pulls`
+ * are the open pull requests into the live branch, as { number, head }.
+ */
+export function branchFindings({ live_branch: live, drafts_branch: drafts }, { changed, pulls }) {
+  const found = []
+  for (const [branch, files] of Object.entries(changed)) {
+    if (!files || branch === drafts || PLATFORM_BRANCH.test(branch)) continue
+    found.push(
+      branch === live
+        ? `\`${live}\` changes ${files} file(s) that \`${drafts}\` doesn't have, so the drafts preview and the author site don't show them. Merge \`${live}\` into \`${drafts}\`.`
+        : `\`${branch}\` changes ${files} file(s) that \`${drafts}\` doesn't have, and nothing builds \`${branch}\`. Bring that work onto \`${drafts}\`, then delete the branch.`,
+    )
+  }
+  for (const pr of pulls) {
+    if (pr.head === drafts || PLATFORM_BRANCH.test(pr.head)) continue
+    found.push(
+      `Pull request #${pr.number} goes into \`${live}\` from \`${pr.head}\`, not from \`${drafts}\`. Point it at \`${drafts}\` instead.`,
+    )
+  }
+  return found
+}

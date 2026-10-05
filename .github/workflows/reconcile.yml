@@ -16,7 +16,8 @@ name: reconcile
 # main is green; the pull request's design preview came first. A run from any
 # other branch builds with that branch's own commit, and deploys nothing.
 #
-# On the 15-minute tick it also asks whether quartz-edition-extras' main is
+# On the 15-minute tick it also flags work outside drafts (the branches job),
+# and asks whether quartz-edition-extras' main is
 # ahead of the pin, and if so starts bump-extras.yml, the bot pull request.
 
 run-name: >-
@@ -180,3 +181,39 @@ jobs:
       - name: Say so if the bot couldn't be asked
         if: failure()
         run: echo "::warning::the extras pin check failed, so no bump pull request was started. Run bump-extras by hand (README, \"The design preview gate\")."
+
+  # Work a book's builds never see (builder/branches.mjs): files on a branch
+  # that isn't built, live-branch files drafts doesn't have, and pull requests
+  # into the live branch from anywhere but drafts. Each is a warning and a line
+  # in the run summary. With the books App set up here (BOOKS_APP_CLIENT_ID,
+  # BOOKS_APP_PRIVATE_KEY, Issues write), one issue per book is kept up to date.
+  # Like extras, it never fails the run.
+  branches:
+    if: inputs.woken_by == 'cron' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: The books App's token, for the issues
+        id: app
+        if: vars.BOOKS_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.BOOKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOOKS_APP_PRIVATE_KEY }}
+          owner: textbookproject2026-alt
+          permission-issues: write
+
+      - name: Flag work outside drafts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUES_TOKEN: ${{ steps.app.outputs.token }}
+        run: node builder/branches.mjs
