@@ -73,10 +73,20 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     // Shown only for books with suggest-edit on. Elsewhere the function would
     // answer 403, so the button stays hidden (edit-on-github's "" default).
     suggestEndpoint: suggestEnabled ? endpoint : "",
+    // The History panel's revision endpoint, beside suggest-edit, for every
+    // book: reading history isn't suggesting, so suggest_edit doesn't gate it.
+    revisionEndpoint: endpoint ? revisionEndpoint(endpoint, book.slug) : "",
     plausibleScriptSrc: counted ? plausibleSrc : "",
     licence: book.licence,
     editionTemplateRepo: book.editions?.template_repo ?? null,
   }
+}
+
+/** suggest-edit-function's /api/page-revision for this book, beside /api/suggest-edit. */
+export const revisionEndpoint = (suggestEndpoint, slug) => {
+  const url = new URL("page-revision", suggestEndpoint)
+  url.searchParams.set("book", slug)
+  return url.toString()
 }
 
 /** JSON with keys sorted at every level, so a digest doesn't depend on key order. */
@@ -146,6 +156,7 @@ export function renderConfig(config, opts, ignorePatterns) {
     branch: opts.branch,
     contentDir: "",
     suggestEndpoint: opts.suggestEndpoint,
+    revisionEndpoint: opts.revisionEndpoint,
   })
   return out
 }
@@ -306,6 +317,9 @@ const BUILDER_GENERATED = [
   ".well-known/textbook-catalog.json",
 ]
 
+/** Each page's revision list, at HISTORY_DIR/<slug>.json (the History panel). */
+export const HISTORY_DIR = ".well-known/history"
+
 /**
  * Whether an output path may be published: it comes from an allowlisted
  * source, or Quartz or the builder generated it. `outPath` is relative to the
@@ -313,6 +327,7 @@ const BUILDER_GENERATED = [
  */
 export function outputAllowed(outPath) {
   if (BUILDER_GENERATED.includes(outPath)) return true
+  if (outPath.startsWith(`${HISTORY_DIR}/`) && outPath.endsWith(".json")) return true
   if (QUARTZ_GENERATED.some((re) => re.test(outPath))) return true
   // A page's social preview image goes with its page.
   if (outPath.endsWith("-og-image.webp"))
@@ -694,3 +709,77 @@ export function buildCatalog({ facts, pages, commits = [] }) {
     recent: recent.slice(0, RECENT_LIMIT),
   }
 }
+
+// ---------------------------------------------------------------------------
+// Page history (the History panel in each page's controls row): every page's
+// revisions on the branch being built, from `git log --follow`, newest first.
+// Opening one asks suggest-edit-function's /api/page-revision for the diff.
+
+/** Every non-merge commit's facts, for revisionsOf: `git log -z` with this format. */
+export const COMMIT_INFO_FORMAT = "%x1e%H%x1f%aI%x1f%aN%x1f%aE%x1f%s%x1f%B"
+
+/** sha -> { date, name, email, subject, body } */
+export function parseCommitInfo(text) {
+  const out = new Map()
+  for (const record of text.split("\x1e").slice(1)) {
+    const [sha, date, name, email, subject, body = ""] = record.replace(/\x00$/, "").split("\x1f")
+    out.set(sha, { date, name, email, subject, body })
+  }
+  return out
+}
+
+/** `git log --follow --name-status -z --format=%x1e%H -- <path>`: [{ sha, path }], path as it was then. */
+export function parseFollowLog(text) {
+  const out = []
+  for (const record of text.split("\x1e").slice(1)) {
+    const [sha, ...fields] = record.split("\x00").map((f) => f.replace(/^\n/, ""))
+    const f = fields.filter((x) => x !== "")
+    // [status, path] or, for a rename or copy, [status, old, new].
+    const path = /^[RC]/.test(f[0] ?? "") ? f[2] : f[1]
+    if (sha && path) out.push({ sha: sha.trim(), path })
+  }
+  return out
+}
+
+/** The name an anonymous in-site proposal gave: its commit's last `Proposed-by:` trailer. */
+export const proposedBy = (body = "") =>
+  [...body.matchAll(/^Proposed-by:[ \t]*(.+?)[ \t]*$/gm)].pop()?.[1].slice(0, 80) || null
+
+const NOREPLY = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.github\.com$/i
+
+/**
+ * Who a revision is by, as the History panel shows it. A person's GitHub login
+ * when the commit carries their noreply address (signed-in in-site proposals and
+ * the author site commit that way), else the name git has (%aN, which respects
+ * .mailmap, as the Contributors page). Automation is never credited: an App or
+ * bot commit is the Co-authored-by people it carries, an anonymous in-site
+ * proposal is the name its Proposed-by: trailer gives, or "a reader" for one from
+ * before the trailer (the panel asks /api/page-revision for those names when the
+ * list opens), and anything else
+ * is the platform's housekeeping. `automation` is the registry's
+ * platform.automation_logins, lower-cased.
+ */
+export function revisionAuthor({ name = "", email = "", body = "" }, automation = new Set()) {
+  const isBot = (n, e) =>
+    /\[bot\]/i.test(n) || /\[bot\]/i.test(e) || automation.has(n.toLowerCase())
+  const person = (n, e) => NOREPLY.exec(e)?.[1] ?? n
+  if (!isBot(name, email)) return { who: person(name, email) }
+  const co = [...body.matchAll(/^Co-authored-by:\s*(.+?)\s*<([^>]*)>\s*$/gim)]
+    .filter((m) => !isBot(m[1], m[2]))
+    .map((m) => person(m[1], m[2]))
+  if (co.length) return { who: [...new Set(co)].join(", ") }
+  const given = proposedBy(body)
+  if (given) return { who: given }
+  if (/Proposed by a reader with the in-site editor\.|^Proposed in #\d+\./m.test(body))
+    return { who: "a reader", reader: true }
+  return { who: "automation", automation: true }
+}
+
+/** One page's list: [{ sha, date, who, reader?, automation?, message, path }], newest first. */
+export const revisionsOf = (follow, info, automation) =>
+  follow
+    .filter((r) => info.has(r.sha))
+    .map(({ sha, path }) => {
+      const c = info.get(sha)
+      return { sha, date: c.date, ...revisionAuthor(c, automation), message: c.subject, path }
+    })

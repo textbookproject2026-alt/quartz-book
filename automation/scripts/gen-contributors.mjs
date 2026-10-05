@@ -92,6 +92,19 @@ function parseArgs(argv) {
   return opts;
 }
 
+/** The name an anonymous in-site proposal gave: its commit's last `Proposed-by:`
+ *  trailer (suggest-edit-function's propose-edit writes it). As builder/lib.mjs's
+ *  proposedBy, kept here because this runs from a sparse checkout of automation/. */
+const proposedBy = (body) =>
+  [...body.matchAll(/^Proposed-by:[ \t]*(.+?)[ \t]*$/gm)].pop()?.[1].slice(0, 80) || null;
+
+/** Older anonymous proposals carry no trailer: they are credited as "A reader". */
+const ANON_MARK = /Proposed by a reader with the in-site editor\./;
+
+/** A name as the page prints it: characters Markdown, wikilinks or HTML would act on
+ *  become character references, so a name a reader typed stays plain text. */
+const plainName = (s) => s.replace(/[&<>[\]|*_`\\~#!]/g, (c) => `&#${c.charCodeAt(0)};`);
+
 const isBot = (name, email) =>
   /\[bot\]/i.test(name) || /\[bot\]/i.test(email) || automationLogins.has(name.toLowerCase());
 
@@ -127,16 +140,18 @@ function resolveRenamePath(p) {
 
 // --- Reading the history ---------------------------------------------------
 
-/** Every non-merge commit, newest first.
+/** Every non-merge commit, newest first, with the name an in-site proposal gave
+ *  (`proposer`) when the App committed it for an anonymous reader.
  *
  *  --no-merges on purpose: a merge commit is a maintainer pressing a button,
  *  and counting it would credit the same work twice — once to whoever wrote it
  *  and once to whoever merged it. */
 function readCommits() {
-  const out = git('log', '--no-merges', `--format=%H${US}%aN${US}%aE${US}%aI`);
-  return out.split('\n').filter(Boolean).map((line) => {
-    const [sha, name, email, date] = line.split(US);
-    return { sha, name, email, date };
+  const out = git('log', '--no-merges', '-z', `--format=%H${US}%aN${US}%aE${US}%aI${US}%B`);
+  return out.split('\0').filter((r) => r.trim()).map((record) => {
+    const [sha, name, email, date, body = ''] = record.replace(/^\n/, '').split(US);
+    const proposer = isBot(name, email) ? proposedBy(body) ?? (ANON_MARK.test(body) ? 'A reader' : null) : null;
+    return { sha, name, email, date, proposer };
   });
 }
 
@@ -195,17 +210,22 @@ function buildContributors(commits, touches) {
   const groups = new Map(); // lowercased email -> group
 
   for (const commit of commits) {
-    if (isBot(commit.name, commit.email)) continue;
+    // An anonymous proposal is credited by the name the reader gave, kept apart
+    // from everyone with an address: typing a maintainer's name doesn't merge into
+    // their row.
+    const anon = commit.proposer !== null;
+    if (!anon && isBot(commit.name, commit.email)) continue;
+    const name = anon ? commit.proposer : commit.name;
 
-    const key = commit.email.toLowerCase();
+    const key = anon ? `\0proposed\0${name.toLowerCase()}` : commit.email.toLowerCase();
     let group = groups.get(key);
     if (!group) {
-      group = { emails: new Set(), names: new Map(), commits: 0, first: commit.date, last: commit.date, pages: new Map() };
+      group = { anon, emails: new Set(), names: new Map(), commits: 0, first: commit.date, last: commit.date, pages: new Map() };
       groups.set(key, group);
     }
 
     group.emails.add(key);
-    group.names.set(commit.name, (group.names.get(commit.name) ?? 0) + 1);
+    group.names.set(name, (group.names.get(name) ?? 0) + 1);
     group.commits++;
     if (commit.date < group.first) group.first = commit.date;
     if (commit.date > group.last) group.last = commit.date;
@@ -229,7 +249,7 @@ function mergeByName(groups) {
   const byName = new Map();
 
   for (const group of groups.sort((a, b) => a.first.localeCompare(b.first))) {
-    const key = dominantName(group).toLowerCase();
+    const key = `${group.anon ? '\0proposed\0' : ''}${dominantName(group).toLowerCase()}`;
     const target = byName.get(key);
     if (!target) { byName.set(key, group); continue; }
 
@@ -247,7 +267,7 @@ function mergeByName(groups) {
   }
 
   return [...byName.values()]
-    .map((g) => ({ ...g, name: dominantName(g) }))
+    .map((g) => ({ ...g, name: plainName(dominantName(g)) }))
     // Most commits first; ties go to whoever started earlier, then by name, so
     // the order never depends on Map insertion or on git's output order.
     .sort((a, b) => b.commits - a.commits || a.first.localeCompare(b.first) || a.name.localeCompare(b.name));
@@ -416,7 +436,7 @@ async function main() {
   const touches = readContentTouches();
   const titles = await readPageTitles();
   const contributors = buildContributors(commits, touches);
-  const botCommits = commits.filter((c) => isBot(c.name, c.email)).length;
+  const botCommits = commits.filter((c) => c.proposer === null && isBot(c.name, c.email)).length;
 
   // The stamp is the date of the newest counted commit, never today's date:
   // see note 1 at the top of this file.
