@@ -78,10 +78,10 @@ const registry = process.env.REGISTRY_FILE
 const books = registry.books.filter((b) =>
   reconcileTargets(registry).some((t) => t.slug === b.slug),
 )
-// The books App's token reaches only the repos in its installation (the owner's).
-// A registered book that isn't in it is reported; one in another account (the
-// test book) can't be, and is skipped quietly.
-const OWNER = "textbookproject2026-alt"
+// The books App's token reaches only the repos in its installation: the books org
+// (registry platform.books_owner), all repositories. A book there that the token
+// can't see is reported; one outside the org can't be, and is skipped quietly.
+const OWNER = registry.platform.books_owner
 const installed = process.env.ISSUES_TOKEN
   ? new Set(
       (
