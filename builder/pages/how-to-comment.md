@@ -7,11 +7,11 @@ There are three ways to help with this book. They differ in **who sees what you
 write**, and in **which account you need**. All three are in the **Contribute**
 menu at the top of every page.
 
-|                         | Who sees it                                                                                                                                                                                                                       | Account                                                  |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| **Edit this page**      | The authors review it. The proposal is public on the book's GitHub repository, and once it's accepted your GitHub name appears in the page's history.                                                                             | A free [GitHub account](https://github.com/signup)       |
-| **Note to the authors** | Your note, your name and your email address masked to its first letter and its domain (like a\*\*\*@example.org) appear on an issue, which anyone can read on the book's GitHub repository. It doesn't appear on the page itself. | None                                                     |
-| **Public comment**      | Everyone reading the page, with your Hypothes.is username.                                                                                                                                                                        | A free [Hypothes.is account](https://hypothes.is/signup) |
+|                         | Who sees it                                                                                                                                           | Account                                                  |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Edit this page**      | The authors review it. The proposal is public on the book's GitHub repository, and once it's accepted your GitHub name appears in the page's history. | A free [GitHub account](https://github.com/signup)       |
+| **Note to the authors** | The authors. It becomes a public issue on the book's GitHub repository, showing your name. It doesn't appear on this page.                            | None. You give your name.                                |
+| **Public comment**      | Anyone on the internet, with your Hypothes.is username.                                                                                               | A free [Hypothes.is account](https://hypothes.is/signup) |
 
 ---
 
@@ -33,10 +33,8 @@ reaches the authors, as a note with exactly what you changed.
 Tell the authors about a mistake or an idea, without an account. Choose
 **Contribute → Note to the authors**, describe the change and, if you like, why.
 
-You give your name and an email address. Your note, your name and your email
-address masked to its first letter and its domain (like a\*\*\*@example.org)
-appear on an issue, which anyone can read on the book's GitHub repository. It
-doesn't appear on the page itself.
+You give your name. Your note and your name appear on a public issue on the book's
+GitHub repository. It doesn't appear on the page itself.
 
 ## Public comment
 
