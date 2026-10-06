@@ -10,7 +10,9 @@
 // sidebar opened (screenshot only) and closed again. In every state but the open
 // sidebar, it asserts:
 //   - logo and menu button on one row: tops within 4px, the button right of the logo;
-//   - search and reader mode on that row too, right of the menu button;
+//   - reader mode on that row too, right of the menu button;
+//   - the sticky header bar (title, Search, Contribute, Annotate, Aa, ⋯) with
+//     every control on one row and inside the screen;
 //   - the Hypothes.is sidebar element present and visible, with its tab, eye and
 //     note buttons at the right edge;
 //   - those buttons over no header icon, no visible text and no open-menu item;
@@ -63,9 +65,14 @@ const measure = () => {
   const header = {
     logo: rect(q(".left.sidebar .home-link")),
     burger: rect(q(".explorer-toggle")),
-    search: rect(q(".left.sidebar .search-button")),
     reader: rect(q(".left.sidebar .readermode")),
+    // The sticky header bar, and its Search (Quartz's own button is hidden now).
+    bar: rect(q(".tb-header")),
+    search: rect(q("[data-tb-search]")),
   }
+  const barButtons = [...document.querySelectorAll(".tb-header .tb-hdr-btn")]
+    .filter((b) => !b.hidden)
+    .map(rect)
   const lr = rect(logoLink)
   const hit = lr ? document.elementFromPoint(lr.left + lr.width / 2, lr.top + lr.height / 2) : null
   const logoOnTop = !!(hit && logoLink && (hit === logoLink || logoLink.contains(hit)))
@@ -127,6 +134,7 @@ const measure = () => {
     path: location.pathname,
     scrollWidth: document.documentElement.scrollWidth,
     header,
+    barButtons,
     logoOnTop,
     hitWas: hit ? hit.tagName.toLowerCase() : null,
     host: !!host,
@@ -163,20 +171,21 @@ const assertState = (m, where, expectMenuOpen) => {
     )
   }
   ok(search && reader, "search and reader mode present")
-  if (search && reader && burger) {
-    ok(
-      Math.abs(search.top + search.height / 2 - (burger.top + burger.height / 2)) <= 6,
-      "search on the header row",
-    )
+  if (reader && burger) {
     ok(
       Math.abs(reader.top + reader.height / 2 - (burger.top + burger.height / 2)) <= 6,
       "reader mode on the header row",
     )
-    ok(
-      search.left >= burger.right && reader.left >= search.right,
-      "search then reader mode, right of the menu button",
-    )
+    ok(reader.left >= burger.right, "reader mode right of the menu button")
   }
+  ok(m.barButtons.length === 5, `the header bar's five controls (${m.barButtons.length})`)
+  if (m.barButtons.length)
+    ok(
+      m.barButtons.every(
+        (b) => Math.abs(b.top - m.barButtons[0].top) <= 2 && b.left >= 0 && b.right <= m.W,
+      ),
+      "the header bar's controls on one row, inside the screen",
+    )
   ok(m.logoOnTop, `logo on top at its own spot (a tap there hits ${m.hitWas})`)
   ok(m.host && m.hostVisible, "Hypothes.is sidebar element present and visible")
   ok(m.hButtons.length >= 3, `Hypothes.is tab, eye and note buttons present (${m.hButtons.length})`)

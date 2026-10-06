@@ -20,7 +20,6 @@ import {
   outputAllowed,
   redirectsFile,
   strayMessage,
-  stripControls,
   walkFiles,
 } from "./lib.mjs"
 
@@ -50,7 +49,6 @@ for (const file of walkFiles(outDir)) {
   let html = readFileSync(file, "utf8")
   html = addCanonical(html, facts.domain, url)
   html = orderFolderListing(html, path.slice(0, -".html".length), facts.contentsOrder ?? [])
-  if (path === `${HOW_TO_COMMENT}.html`) html = stripControls(html)
   writeFileSync(file, html)
 }
 

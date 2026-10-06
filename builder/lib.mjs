@@ -78,6 +78,7 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     revisionEndpoint: endpoint ? revisionEndpoint(endpoint, book.slug) : "",
     plausibleScriptSrc: counted ? plausibleSrc : "",
     licence: book.licence,
+    authors: book.maintainer?.name ?? "",
     editionTemplateRepo: book.editions?.template_repo ?? null,
   }
 }
@@ -159,6 +160,8 @@ export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
     contentDir: "",
     suggestEndpoint: opts.suggestEndpoint,
     revisionEndpoint: opts.revisionEndpoint,
+    authors: opts.authors ?? "",
+    licence: opts.licence ?? "",
     // What each page was built from (the editor says when drafts has moved on).
     sourceCommit: opts.sourceCommit ?? "",
     sourceBlobs: opts.sourceBlobs ?? {},
@@ -409,18 +412,6 @@ export function orderFolderListing(html, pageSlug, order) {
       x.title.localeCompare(y.title, undefined, { numeric: true, sensitivity: "base" }),
   )
   return html.slice(0, start + open.length) + ranked.map((r) => r.li).join("") + html.slice(end)
-}
-
-/**
- * The builder's own page has no file in the book, so its Edit and History
- * links would 404. Drop the controls row; the annotation badge then sits under
- * the title, as it does on any page without a row.
- */
-export function stripControls(html) {
-  // The row carries data-source-* attributes since edit-on-github stamps its build.
-  const out = html.replace(/<div class="tb-page-controls"[^>]*>[\s\S]*?<\/div>/, "")
-  if (out === html) throw new Error(`/${HOW_TO_COMMENT} has no controls row to remove.`)
-  return out
 }
 
 /** The build marker (§0). No timestamp: two builds of the same inputs are identical. */

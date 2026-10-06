@@ -134,7 +134,7 @@ test("the fixture on its live branch", async (t) => {
     )
     assert.match(
       html,
-      /class="tb-suggest-btn"[^>]*data-endpoint="https:\/\/suggest-edit\.example\.invalid\/api\/suggest-edit"/,
+      /class="tb-mi tb-suggest-btn"[^>]*data-endpoint="https:\/\/suggest-edit\.example\.invalid\/api\/suggest-edit"/,
     )
     assert.match(
       b.read("chapters/definitions/the-three-domains.html"),
@@ -167,10 +167,48 @@ test("the fixture on its live branch", async (t) => {
       /<link rel="canonical" href="https:\/\/design-fixture\.example\.invalid\/" data-builder="quartz-book">/,
     )
   })
-  await t.test("/how-to-comment is the builder's page, with no Edit link", () => {
-    const html = b.read("how-to-comment.html")
-    assert.match(html, /<title>Commenting in the Margins<\/title>/)
-    assert.doesNotMatch(html, /<div class="tb-page-controls"/)
+  await t.test(
+    "/how-to-comment is the builder's page: the header, but nothing that needs a source file",
+    () => {
+      const html = b.read("how-to-comment.html")
+      assert.match(html, /<title>How to Contribute and Comment<\/title>/)
+      assert.match(html, /<div class="tb-header tb-page-controls"/)
+      assert.doesNotMatch(html, /class="[^"]*\b(edit-on-github|tb-history-link)\b/)
+      assert.doesNotMatch(html, /data-source-path=|data-tb-download=/)
+    },
+  )
+  await t.test(
+    "the sticky header comes first on every page, and Quartz's own title, crumbs and theme toggle are gone (A, C)",
+    () => {
+      for (const p of ["chapters/chapter-01.html", "index.html", "chapters/index.html"]) {
+        const html = b.read(p)
+        const header = html.indexOf('class="tb-header tb-page-controls"')
+        assert.ok(header > 0, p)
+        assert.ok(header < html.indexOf('class="article-title'), `${p}: before the title`)
+        assert.doesNotMatch(
+          html,
+          /class="darkmode"|class="breadcrumb-container"|<h2 class="page-title"/,
+          p,
+        )
+      }
+      const html = b.read("chapters/chapter-01.html")
+      for (const control of [
+        "data-tb-search",
+        "data-tb-contribute",
+        "data-tb-annotate",
+        "data-tb-appearance",
+        "data-tb-more",
+      ])
+        assert.match(html, new RegExp(control), control)
+      // The theme is set in <head> before paint, from Quartz's own key.
+      assert.match(html, /window\.tbPrefs/)
+      assert.match(html, /data-licence="CC-BY-SA-4\.0"/)
+    },
+  )
+  await t.test("Search has the book's own content index to search (A)", () => {
+    const index = JSON.parse(b.read("static/contentIndex.json"))
+    assert.ok(index["chapters/chapter-01"], "the chapter is in the index")
+    assert.equal(b.has("static/contentIndex.json"), true)
   })
   await t.test("the marker", () => {
     const m = JSON.parse(b.read(".well-known/textbook.json"))
@@ -246,8 +284,8 @@ test("the fixture on its live branch", async (t) => {
     const link =
       '<div class="left sidebar"><p class="home-link"><a href="https://confused4now.org/" aria-label="Confused for Now (home)"><svg '
     for (const p of pages) assert.ok(b.read(p).includes(link), p)
-    // The rest of the sidebar follows it, as before.
-    assert.match(b.read("chapters/chapter-01.html"), /<\/svg><\/a><\/p><h2 class="page-title">/)
+    // The rest of the sidebar follows it; the book's title is in the header now.
+    assert.doesNotMatch(b.read("chapters/chapter-01.html"), /<h2 class="page-title">/)
   })
 
   await t.test("the home link's two inline logos: exactly one shows at each width", () => {
@@ -319,7 +357,7 @@ test("suggest-edit off in the registry: no Suggest button", () => {
   const b = build(fixtureBook("no-suggest-fixture").dir, "main")
   assert.equal(b.status, 0, b.log)
   const html = b.read("chapters/chapter-01.html")
-  assert.match(html, /class="edit-on-github"/)
+  assert.match(html, /class="[^"]*\bedit-on-github\b/)
   assert.doesNotMatch(html, /<button[^>]*tb-suggest-btn/)
   assert.match(
     b.read("_redirects"),

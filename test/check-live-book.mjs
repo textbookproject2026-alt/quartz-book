@@ -81,7 +81,7 @@ check('Edit and History use the repo root (contentDir ""), not content/', () => 
 })
 
 check("Suggest follows the registry, with the platform endpoint", () => {
-  const button = `class="tb-suggest-btn" hidden data-endpoint="${registry.platform.suggest_edit_endpoint}"`
+  const button = `class="tb-mi tb-suggest-btn" hidden data-endpoint="${registry.platform.suggest_edit_endpoint}"`
   assert.equal(pageHtml().includes(button), book.suggest_edit?.enabled === true)
 })
 
@@ -93,7 +93,7 @@ check("Plausible counts on the book's domain only", () => {
 
 check("the graph is on, and the builder's /how-to-comment is there", () => {
   assert.match(pageHtml(), /class="graph"/)
-  assert.match(read("how-to-comment.html"), /<title>Commenting in the Margins<\/title>/)
+  assert.match(read("how-to-comment.html"), /<title>How to Contribute and Comment<\/title>/)
 })
 
 check("the page's head carries index.md's Contents order, for the explorer", () => {
