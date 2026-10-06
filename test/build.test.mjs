@@ -170,7 +170,7 @@ test("the fixture on its live branch", async (t) => {
   await t.test("/how-to-comment is the builder's page, with no Edit link", () => {
     const html = b.read("how-to-comment.html")
     assert.match(html, /<title>Commenting in the Margins<\/title>/)
-    assert.doesNotMatch(html, /<div class="tb-page-controls">/)
+    assert.doesNotMatch(html, /<div class="tb-page-controls"/)
   })
   await t.test("the marker", () => {
     const m = JSON.parse(b.read(".well-known/textbook.json"))
