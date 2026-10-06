@@ -21,20 +21,22 @@ const summary = (text) => {
 }
 const warn = (slug, text) => console.log(`::warning title=${slug}::${text.replaceAll("`", "")}`)
 
-const client = (token) => async (path, { method = "GET", body } = {}) => {
-  const res = await fetch(`https://api.github.com${path}`, {
-    method,
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(30000),
-  })
-  const text = await res.text()
-  return { status: res.status, data: text ? JSON.parse(text) : null }
-}
+const client =
+  (token) =>
+  async (path, { method = "GET", body } = {}) => {
+    const res = await fetch(`https://api.github.com${path}`, {
+      method,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(30000),
+    })
+    const text = await res.text()
+    return { status: res.status, data: text ? JSON.parse(text) : null }
+  }
 
 const SAID = {
   current: () => "drafts already has everything on the live branch; nothing written.",
@@ -49,16 +51,24 @@ try {
   const registry = process.env.REGISTRY_FILE
     ? JSON.parse(readFileSync(process.env.REGISTRY_FILE, "utf8"))
     : await (await fetch(REGISTRY_URL)).json()
-  const slugs = new Set(reconcileTargets(registry, { slug: process.env.SLUG ?? "" }).map((t) => t.slug))
+  const slugs = new Set(
+    reconcileTargets(registry, { slug: process.env.SLUG ?? "" }).map((t) => t.slug),
+  )
   const books = registry.books.filter(
-    (b) => slugs.has(b.slug) && b.content.drafts_branch && b.content.drafts_branch !== b.content.live_branch,
+    (b) =>
+      slugs.has(b.slug) &&
+      b.content.drafts_branch &&
+      b.content.drafts_branch !== b.content.live_branch,
   )
   const tokens = ownerTokens(process.env)
   const installed = new Map()
   for (const [owner, t] of tokens) {
     if (!t.token) continue
     const r = await client(t.token)("/installation/repositories?per_page=100")
-    installed.set(owner, new Set((r.data?.repositories ?? []).map((x) => x.full_name.toLowerCase())))
+    installed.set(
+      owner,
+      new Set((r.data?.repositories ?? []).map((x) => x.full_name.toLowerCase())),
+    )
   }
   summary("### Drafts kept current\n\n")
   for (const book of books) {

@@ -686,9 +686,15 @@ test("appGap: an App for each owner, the repo in its installation", () => {
   })
   const installed = new Map([["books-org", new Set(["books-org/book-a"])]])
   assert.equal(appGap("Books-Org/Book-A", tokens, installed), null)
-  assert.match(appGap("books-org/book-b", tokens, installed).why, /isn't in the books App's installation/)
+  assert.match(
+    appGap("books-org/book-b", tokens, installed).why,
+    /isn't in the books App's installation/,
+  )
   // The platform's own account: its App isn't set up in this run.
-  assert.match(appGap("me/test-book", tokens, installed).why, /no App token for me.*quartz-book bot App/)
+  assert.match(
+    appGap("me/test-book", tokens, installed).why,
+    /no App token for me.*quartz-book bot App/,
+  )
   assert.match(appGap("elsewhere/x", tokens, installed).why, /no App token for elsewhere/)
 })
 
@@ -723,7 +729,11 @@ test("syncDrafts: drafts behind is fast-forwarded to the compared live head, nev
   })
   assert.deepEqual(await syncDrafts(BOOK, f.gh), { outcome: "fast-forwarded", sha: LIVE })
   assert.deepEqual(f.writes(), [
-    { method: "PATCH", path: "/repos/o/book/git/refs/heads/drafts", body: { sha: LIVE, force: false } },
+    {
+      method: "PATCH",
+      path: "/repos/o/book/git/refs/heads/drafts",
+      body: { sha: LIVE, force: false },
+    },
   ])
 })
 
@@ -739,21 +749,36 @@ test("syncDrafts: both moved, or drafts moved during the fast-forward: a merge o
   ]) {
     const f = fakeGitHub(answers)
     assert.deepEqual(await syncDrafts(BOOK, f.gh), { outcome: "merged", sha: "2".repeat(40) })
-    assert.deepEqual(f.writes().at(-1).body, { base: "drafts", head: LIVE, commit_message: SYNC_MESSAGE })
+    assert.deepEqual(f.writes().at(-1).body, {
+      base: "drafts",
+      head: LIVE,
+      commit_message: SYNC_MESSAGE,
+    })
   }
   // The merge message must never carry a skip marker: drafts builds are wanted.
   assert.doesNotMatch(SYNC_MESSAGE, /skip/i)
 })
 
 test("syncDrafts: a conflict writes nothing and says so; other refusals are errors", async () => {
-  const conflict = fakeGitHub({ [COMPARE]: compare("diverged"), "POST /repos/o/book/merges": { status: 409, data: {} } })
+  const conflict = fakeGitHub({
+    [COMPARE]: compare("diverged"),
+    "POST /repos/o/book/merges": { status: 409, data: {} },
+  })
   assert.deepEqual(await syncDrafts(BOOK, conflict.gh), { outcome: "conflict" })
   const denied = fakeGitHub({
     [COMPARE]: compare("behind"),
     "PATCH /repos/o/book/git/refs/heads/drafts": { status: 403, data: {} },
   })
-  assert.deepEqual(await syncDrafts(BOOK, denied.gh), { outcome: "error", status: 403, step: "fast-forward" })
+  assert.deepEqual(await syncDrafts(BOOK, denied.gh), {
+    outcome: "error",
+    status: 403,
+    step: "fast-forward",
+  })
   assert.equal(denied.writes().length, 1, "no merge after a refused fast-forward")
   const missing = fakeGitHub({ [COMPARE]: { status: 404, data: {} } })
-  assert.deepEqual(await syncDrafts(BOOK, missing.gh), { outcome: "error", status: 404, step: "compare" })
+  assert.deepEqual(await syncDrafts(BOOK, missing.gh), {
+    outcome: "error",
+    status: 404,
+    step: "compare",
+  })
 })
