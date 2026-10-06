@@ -132,6 +132,15 @@ new marker. A run with nothing to do deploys nothing.
   run is red.
 - **Secrets:** `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit, the platform's account
   only) and `CLOUDFLARE_ACCOUNT_ID`. Only the deploy job reads them.
+- **Drafts kept current** (`builder/sync-drafts.mjs`, 06 Oct): the run's first job
+  brings each book's `drafts` up to its live branch, so the in-site editor and the
+  author site never edit text older than the published page. Already current: no
+  write at all. Behind: a fast-forward. Both moved: a merge commit by the App. A
+  conflict writes nothing and shows up in the book's *Changes outside drafts* issue.
+  It pushes as the books App in the books org and as the `quartz-book bot` App in
+  `textbookproject2026-alt` (both with Contents write), and `build-nudge` ignores
+  those Apps' pushes to a drafts branch, so a sync never starts another run; the
+  plan, after it, builds the new head. A book neither App can reach is a warning.
 - **Which books:** every entry with `site.host.builder: "quartz-book"`, whatever its
   host kind. On an `obsidian-publish` host (book one until its cutover), the Pages
   project is a preview only: readers are still served by Publish at `site.domain`.
@@ -179,11 +188,14 @@ it is previewed on every book before it reaches any.
     an App, its `ci` and `design-preview` run at once and `build` counts.
   - The App: owned by `textbookproject2026-alt`, no webhook, repository permissions
     _Contents: Read and write_ and _Pull requests: Read and write_ (Metadata: read
-    comes with them), installed on `quartz-book` only. Not the suggest-edit App,
-    which stays issues-only.
+    comes with them), installed on `quartz-book`, and on any book repo in
+    `textbookproject2026-alt` (the books App can't be installed outside the books
+    org): there it keeps `drafts` current. Give it _Issues: Read and write_ too and
+    those books also get the branch check's issue. Not the suggest-edit App.
   - In `quartz-book` (Settings → Secrets and variables → Actions): the variable
     `BOT_APP_CLIENT_ID` (the App's Client ID) and the secret `BOT_APP_PRIVATE_KEY`
-    (a private key generated on the App's page). Only `bump-extras` reads them.
+    (a private key generated on the App's page). `bump-extras` reads them, and
+    `reconcile`'s drafts and branches jobs.
   - Without them, the bot falls back to `GITHUB_TOKEN`: it still opens the pull
     request and dispatches the preview and CI, warns, and the pull request waits for
     someone to approve its held runs (the pull request's Checks, **Approve and
