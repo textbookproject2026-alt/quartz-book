@@ -7,11 +7,11 @@ There are three ways to help with this book. They differ in **who sees what you
 write**, and in **which account you need**. All three are in the **Contribute**
 menu at the top of every page.
 
-|                         | Who sees it                                                                                                                                           | Account                                                  |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| **Edit this page**      | The authors review it. The proposal is public on the book's GitHub repository, and once it's accepted your GitHub name appears in the page's history. | A free [GitHub account](https://github.com/signup)       |
-| **Note to the authors** | The authors. It becomes an issue on the book's GitHub repository: anyone can read it there, but it doesn't appear on the page.                        | None                                                     |
-| **Public comment**      | Everyone reading the book, with your Hypothes.is username.                                                                                            | A free [Hypothes.is account](https://hypothes.is/signup) |
+|                         | Who sees it                                                                                                                                                                                                                       | Account                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Edit this page**      | The authors review it. The proposal is public on the book's GitHub repository, and once it's accepted your GitHub name appears in the page's history.                                                                             | A free [GitHub account](https://github.com/signup)       |
+| **Note to the authors** | Your note, your name and your email address masked to its first letter and its domain (like a\*\*\*@example.org) appear on an issue, which anyone can read on the book's GitHub repository. It doesn't appear on the page itself. | None                                                     |
+| **Public comment**      | Everyone reading the page, with your Hypothes.is username.                                                                                                                                                                        | A free [Hypothes.is account](https://hypothes.is/signup) |
 
 ---
 
@@ -33,9 +33,10 @@ reaches the authors, as a note with exactly what you changed.
 Tell the authors about a mistake or an idea, without an account. Choose
 **Contribute → Note to the authors**, describe the change and, if you like, why.
 
-You give a name and an email address. The authors see your note as an issue on
-the book's GitHub repository. Anyone can read it there, but it doesn't appear on
-the page itself, and your email address is never published.
+You give your name and an email address. Your note, your name and your email
+address masked to its first letter and its domain (like a\*\*\*@example.org)
+appear on an issue, which anyone can read on the book's GitHub repository. It
+doesn't appear on the page itself.
 
 ## Public comment
 
@@ -65,8 +66,8 @@ same way, from the sidebar.
 ### Two things people don't expect
 
 **Comments are public.** They aren't private to your class or your tutor: anyone
-on the internet can read them. There is one margin, and everybody shares it, by
-decision. Write what you'd be happy to have your name on.
+on the internet can read them. There is one margin, and everybody shares it.
+Write what you'd be happy to have your name on.
 
 > [!warning] Don't put personal information in a comment
 > Not your student number, your email address, anything about your health or your
@@ -106,5 +107,5 @@ sometimes don't take.
 the words it was attached to change a lot, it moves to the **Orphans** tab at the
 top of the sidebar, still there and still yours.
 
-If none of that helps, tell your course coordinator: it's almost always something
-at the site's end.
+If none of that helps, choose **Contribute → Note to the authors** and say what went
+wrong; it's almost always something at the site's end.
