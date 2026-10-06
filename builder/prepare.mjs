@@ -29,6 +29,7 @@ import {
   parseCommitInfo,
   parseFollowLog,
   parseGitLog,
+  parseLsTree,
   registryDigest,
   renderConfig,
   revisionsOf,
@@ -87,13 +88,21 @@ try {
   const shared = YAML.parse(readFileSync(join(BUILDER, "quartz.config.yaml"), "utf8"))
   const indexFile = join(book, "index.md")
   const order = contentsOrder(existsSync(indexFile) ? readFileSync(indexFile, "utf8") : "")
-  const rendered = renderConfig(shared, opts, ignorePatternsFor(entries), order)
+  // The commit, and each published file's blob, the pages are built from.
+  const bookCommit = git(book, "rev-parse", "HEAD")
+  const sourceBlobs = parseLsTree(git(book, "ls-tree", "-r", "-z", "HEAD", "--", ...ALLOWLIST))
+  const rendered = renderConfig(
+    shared,
+    { ...opts, sourceCommit: bookCommit, sourceBlobs },
+    ignorePatternsFor(entries),
+    order,
+  )
   writeFileSync(join(workDir, "quartz.config.yaml"), YAML.stringify(rendered))
 
   const builderDirty = git(BUILDER, "status", "--porcelain", "--untracked-files=no") !== ""
   const facts = {
     ...opts,
-    bookCommit: git(book, "rev-parse", "HEAD"),
+    bookCommit,
     builderCommit: git(BUILDER, "rev-parse", "HEAD") + (builderDirty ? "-dirty" : ""),
     registryDigest: registryDigest(registry, entry),
     status: entry.status,

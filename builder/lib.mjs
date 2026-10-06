@@ -159,8 +159,24 @@ export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
     contentDir: "",
     suggestEndpoint: opts.suggestEndpoint,
     revisionEndpoint: opts.revisionEndpoint,
+    // What each page was built from (the editor says when drafts has moved on).
+    sourceCommit: opts.sourceCommit ?? "",
+    sourceBlobs: opts.sourceBlobs ?? {},
   })
   return out
+}
+
+/**
+ * `git ls-tree -r -z` output as { repo path: blob sha }, for the .md files: what
+ * edit-on-github stamps on each page as data-source-blob.
+ */
+export function parseLsTree(out) {
+  const blobs = {}
+  for (const entry of out.split("\0")) {
+    const m = /^\d+ blob ([0-9a-f]{40,64})\t(.+\.md)$/.exec(entry)
+    if (m) blobs[m[2]] = m[1]
+  }
+  return blobs
 }
 
 /**
@@ -401,7 +417,8 @@ export function orderFolderListing(html, pageSlug, order) {
  * the title, as it does on any page without a row.
  */
 export function stripControls(html) {
-  const out = html.replace(/<div class="tb-page-controls">[\s\S]*?<\/div>/, "")
+  // The row carries data-source-* attributes since edit-on-github stamps its build.
+  const out = html.replace(/<div class="tb-page-controls"[^>]*>[\s\S]*?<\/div>/, "")
   if (out === html) throw new Error(`/${HOW_TO_COMMENT} has no controls row to remove.`)
   return out
 }

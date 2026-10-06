@@ -25,6 +25,7 @@ import {
   reconcileTargets,
   redirectsFile,
   registryDigest,
+  parseLsTree,
   renderConfig,
   slugUrl,
   stripControls,
@@ -92,6 +93,8 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
     contentDir: "",
     suggestEndpoint: "https://suggest-edit.example.invalid/api/suggest-edit",
     revisionEndpoint: "https://suggest-edit.example.invalid/api/page-revision?book=design-fixture",
+    sourceCommit: "",
+    sourceBlobs: {},
   })
   assert.equal(
     plugin(out, "edition-integrations").options.siteDomain,
@@ -106,6 +109,30 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
   })
   // The shared config itself is untouched.
   assert.equal(plugin(shared, "edit-on-github").options.repo, "")
+})
+
+test("each page is stamped with the commit and blob it was built from", () => {
+  const opts = bookOptions(registry, findBook(registry, "design-fixture"), "main")
+  const c = "c".repeat(40)
+  const b = "b".repeat(40)
+  const out = renderConfig(shared, { ...opts, sourceCommit: c, sourceBlobs: { "index.md": b } }, [])
+  const edit = plugin(out, "edit-on-github").options
+  assert.equal(edit.sourceCommit, c)
+  assert.deepEqual(edit.sourceBlobs, { "index.md": b })
+  // git ls-tree -r -z: only .md blobs, paths with spaces kept whole.
+  const a = "a".repeat(40)
+  assert.deepEqual(
+    parseLsTree(
+      [
+        `100644 blob ${a}\tchapters/Chapter 3.md`,
+        `100644 blob ${b}\tindex.md`,
+        `100644 blob ${c}\tassets/x.png`,
+        `160000 commit ${c}\tsub.md`,
+        "",
+      ].join("\0"),
+    ),
+    { "chapters/Chapter 3.md": a, "index.md": b },
+  )
 })
 
 test("the shared config: graph on, SPA off, the extras present", () => {
@@ -380,6 +407,12 @@ test("the builder's page loses its controls row", () => {
   const html =
     '<p>a</p><div class="tb-page-controls"><a class="edit-on-github" href="x">Edit</a></div><p>b</p>'
   assert.equal(stripControls(html), "<p>a</p><p>b</p>")
+  // With the build stamp edit-on-github puts on the row.
+  const stamped = html.replace(
+    'class="tb-page-controls"',
+    'class="tb-page-controls" data-source-path="how-to-comment.md" data-source-commit="abc"',
+  )
+  assert.equal(stripControls(stamped), "<p>a</p><p>b</p>")
   assert.throws(() => stripControls("<p>no row</p>"))
 })
 
