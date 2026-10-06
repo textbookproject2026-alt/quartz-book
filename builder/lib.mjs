@@ -204,6 +204,15 @@ export function contentsOrder(indexMarkdown) {
 export const ASSET_NOTES = "assets/**/*.md"
 
 /**
+ * Which of the book repo's paths become part of the site: a top-level name on the
+ * allowlist (a file by name, a folder with everything in it), except the globs.
+ * Written into the served marker, so a reader of the site (the author site's
+ * going-live list) can tell reader-facing changes from behind-the-scenes ones by
+ * the rule the deployed builder used, not a copy of it.
+ */
+export const SERVES = { paths: ALLOWLIST, except: [ASSET_NOTES] }
+
+/**
  * Quartz ignorePatterns for everything at the top of the book repo that isn't on
  * the allowlist. `entries` are the repo root's names. Both the name and
  * everything under it are listed, so a folder is ignored whole.

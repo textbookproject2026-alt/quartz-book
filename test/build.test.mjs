@@ -180,7 +180,12 @@ test("the fixture on its live branch", async (t) => {
       "book_commit",
       "registry_digest",
       "builder_commit",
+      "serves",
     ])
+    assert.deepEqual(m.serves, {
+      paths: ["index.md", "chapters", "assets", "glossary.md", "community"],
+      except: ["assets/**/*.md"],
+    })
     assert.equal(m.slug, "design-fixture")
     assert.equal(m.branch, "main")
     assert.equal(m.book_commit, book.head)

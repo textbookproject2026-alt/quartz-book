@@ -16,6 +16,7 @@ import {
   orderFolderListing,
   htmlUrl,
   marker,
+  SERVES,
   outputAllowed,
   redirectsFile,
   strayMessage,
@@ -55,7 +56,7 @@ for (const file of walkFiles(outDir)) {
 
 write("_redirects", redirectsFile(pages, facts))
 if (facts.noindex) write("_headers", NOINDEX_HEADERS)
-write(MARKER_PATH, JSON.stringify(marker(facts), null, 2) + "\n")
+write(MARKER_PATH, JSON.stringify({ ...marker(facts), serves: SERVES }, null, 2) + "\n")
 
 // The catalog the portal reads (lib.mjs, "The book's catalog"). Frontmatter
 // is read from the staged source; a page whose frontmatter doesn't parse is
