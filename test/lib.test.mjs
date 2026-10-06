@@ -8,8 +8,11 @@ import {
   BuildRefused,
   addCanonical,
   bookOptions,
-  booksAppGap,
+  appGap,
   branchFindings,
+  ownerTokens,
+  SYNC_MESSAGE,
+  syncDrafts,
   contentsOrder,
   branchAlias,
   findBook,
@@ -674,9 +677,108 @@ test("branchFindings flags work drafts doesn't have, and nothing the platform ma
   assert.deepEqual(branchFindings(content, { changed: { main: 0 }, pulls: [] }), [])
 })
 
-test("booksAppGap: in the installation, missing from it, or outside the owner", () => {
-  const installed = new Set(["me/book-a"])
-  assert.equal(booksAppGap("me/book-a", installed, "me"), null)
-  assert.equal(booksAppGap("me/book-b", installed, "me").fix, true)
-  assert.equal(booksAppGap("other/test-book", installed, "me").fix, false)
+test("appGap: an App for each owner, the repo in its installation", () => {
+  const tokens = ownerTokens({
+    BOOKS_OWNER: "Books-Org",
+    BOOKS_TOKEN: "t1",
+    PLATFORM_OWNER: "me",
+    PLATFORM_TOKEN: "",
+  })
+  const installed = new Map([["books-org", new Set(["books-org/book-a"])]])
+  assert.equal(appGap("Books-Org/Book-A", tokens, installed), null)
+  assert.match(
+    appGap("books-org/book-b", tokens, installed).why,
+    /isn't in the books App's installation/,
+  )
+  // The platform's own account: its App isn't set up in this run.
+  assert.match(
+    appGap("me/test-book", tokens, installed).why,
+    /no App token for me.*quartz-book bot App/,
+  )
+  assert.match(appGap("elsewhere/x", tokens, installed).why, /no App token for elsewhere/)
+})
+
+/** A GitHub that answers syncDrafts' calls from a script, and records each one. */
+const fakeGitHub = (answers) => {
+  const calls = []
+  const gh = async (path, { method = "GET", body } = {}) => {
+    calls.push({ method, path, body })
+    const a = answers[`${method} ${path}`]
+    if (!a) throw new Error(`unexpected ${method} ${path}`)
+    return typeof a === "function" ? a() : a
+  }
+  return { gh, calls, writes: () => calls.filter((c) => c.method !== "GET") }
+}
+const BOOK = { repo: "o/book", live_branch: "main", drafts_branch: "drafts" }
+const COMPARE = "GET /repos/o/book/compare/main...drafts"
+const LIVE = "1".repeat(40)
+const compare = (status) => ({ status: 200, data: { status, base_commit: { sha: LIVE } } })
+
+test("syncDrafts: drafts that already has everything gets no write at all", async () => {
+  for (const status of ["identical", "ahead"]) {
+    const f = fakeGitHub({ [COMPARE]: compare(status) })
+    assert.deepEqual(await syncDrafts(BOOK, f.gh), { outcome: "current" })
+    assert.deepEqual(f.writes(), [])
+  }
+})
+
+test("syncDrafts: drafts behind is fast-forwarded to the compared live head, never forced", async () => {
+  const f = fakeGitHub({
+    [COMPARE]: compare("behind"),
+    "PATCH /repos/o/book/git/refs/heads/drafts": { status: 200, data: {} },
+  })
+  assert.deepEqual(await syncDrafts(BOOK, f.gh), { outcome: "fast-forwarded", sha: LIVE })
+  assert.deepEqual(f.writes(), [
+    {
+      method: "PATCH",
+      path: "/repos/o/book/git/refs/heads/drafts",
+      body: { sha: LIVE, force: false },
+    },
+  ])
+})
+
+test("syncDrafts: both moved, or drafts moved during the fast-forward: a merge of the live head", async () => {
+  const merge = { "POST /repos/o/book/merges": { status: 201, data: { sha: "2".repeat(40) } } }
+  for (const answers of [
+    { [COMPARE]: compare("diverged"), ...merge },
+    {
+      [COMPARE]: compare("behind"),
+      "PATCH /repos/o/book/git/refs/heads/drafts": { status: 422, data: {} },
+      ...merge,
+    },
+  ]) {
+    const f = fakeGitHub(answers)
+    assert.deepEqual(await syncDrafts(BOOK, f.gh), { outcome: "merged", sha: "2".repeat(40) })
+    assert.deepEqual(f.writes().at(-1).body, {
+      base: "drafts",
+      head: LIVE,
+      commit_message: SYNC_MESSAGE,
+    })
+  }
+  // The merge message must never carry a skip marker: drafts builds are wanted.
+  assert.doesNotMatch(SYNC_MESSAGE, /skip/i)
+})
+
+test("syncDrafts: a conflict writes nothing and says so; other refusals are errors", async () => {
+  const conflict = fakeGitHub({
+    [COMPARE]: compare("diverged"),
+    "POST /repos/o/book/merges": { status: 409, data: {} },
+  })
+  assert.deepEqual(await syncDrafts(BOOK, conflict.gh), { outcome: "conflict" })
+  const denied = fakeGitHub({
+    [COMPARE]: compare("behind"),
+    "PATCH /repos/o/book/git/refs/heads/drafts": { status: 403, data: {} },
+  })
+  assert.deepEqual(await syncDrafts(BOOK, denied.gh), {
+    outcome: "error",
+    status: 403,
+    step: "fast-forward",
+  })
+  assert.equal(denied.writes().length, 1, "no merge after a refused fast-forward")
+  const missing = fakeGitHub({ [COMPARE]: { status: 404, data: {} } })
+  assert.deepEqual(await syncDrafts(BOOK, missing.gh), {
+    outcome: "error",
+    status: 404,
+    step: "compare",
+  })
 })

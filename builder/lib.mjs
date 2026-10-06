@@ -939,7 +939,7 @@ export function branchFindings({ live_branch: live, drafts_branch: drafts }, { c
     if (!files || branch === drafts || PLATFORM_BRANCH.test(branch)) continue
     found.push(
       branch === live
-        ? `\`${live}\` changes ${files} file(s) that \`${drafts}\` doesn't have, so the drafts preview and the author site don't show them. Merge \`${live}\` into \`${drafts}\`.`
+        ? `\`${live}\` changes ${files} file(s) that \`${drafts}\` doesn't have, and the builder couldn't bring them in by itself (most likely a conflict: the same lines changed on both). Until someone merges \`${live}\` into \`${drafts}\` by hand, the drafts preview, the author site and the in-site editor don't show them.`
         : `\`${branch}\` changes ${files} file(s) that \`${drafts}\` doesn't have, and nothing builds \`${branch}\`. Bring that work onto \`${drafts}\`, then delete the branch.`,
     )
   }
@@ -953,19 +953,79 @@ export function branchFindings({ live_branch: live, drafts_branch: drafts }, { c
 }
 
 /**
- * Whether the books App can keep a book's issue (05 Oct): null when the repo is in
- * its installation (`installed`, full names), else why not. A repo outside `owner`
- * can't have the App at all (platform-test-book); one inside it is a gap to fix.
+ * The App tokens a run holds, by repository owner (lowercased): the books App for
+ * the books org (registry platform.books_owner), the `quartz-book bot` App for the
+ * platform's own account, where the books App can't be installed (06 Oct). An
+ * owner whose App isn't set up here has token "".
  */
-export function booksAppGap(repo, installed, owner) {
-  if (installed.has(repo)) return null
-  return repo.split("/")[0] === owner
-    ? {
-        fix: true,
-        why: `${repo} isn't in the books App's installation, so it gets no issue. Add it.`,
-      }
-    : {
-        fix: false,
-        why: `${repo} is outside ${owner}, where the books App can't be installed, so it gets no issue.`,
-      }
+export function ownerTokens(env) {
+  const out = new Map()
+  for (const [owner, token, app] of [
+    [env.BOOKS_OWNER, env.BOOKS_TOKEN, "the books App"],
+    [env.PLATFORM_OWNER, env.PLATFORM_TOKEN, "the quartz-book bot App"],
+  ])
+    if (owner) out.set(owner.toLowerCase(), { token: token || "", app })
+  return out
+}
+
+/**
+ * Whether an App here can reach a book's repo: null when it can, else why not.
+ * `tokens` is ownerTokens(); `installed` maps an owner to the full names (lowercased)
+ * its App's token can see.
+ */
+export function appGap(repo, tokens, installed) {
+  const owner = repo.split("/")[0].toLowerCase()
+  const t = tokens.get(owner)
+  if (!t?.token)
+    return {
+      why: `no App token for ${owner} in this run, so ${repo} is left as it is. ${t ? `Set up ${t.app} (quartz-book README).` : "Move the book to the books org, or to the platform's account."}`,
+    }
+  if (!installed.get(owner)?.has(repo.toLowerCase()))
+    return { why: `${repo} isn't in ${t.app}'s installation. Add it there.` }
+  return null
+}
+
+/** The merge commit message when drafts and the live branch have both moved. */
+export const SYNC_MESSAGE =
+  "Bring the live book's changes into drafts\n\nquartz-book keeps drafts current with the live branch (builder/sync-drafts.mjs)."
+
+/**
+ * Keeps a book's drafts branch current with its live branch (06 Oct): drafts is
+ * what the in-site editor and the author site edit, so whatever reached the live
+ * branch without passing through drafts (a publish's merge commit, a fix made on
+ * the live branch) must be in drafts too.
+ *
+ *   drafts has everything already      nothing at all: no write, no push event
+ *   drafts is behind                   fast-forward (a ref update, no new commit)
+ *   both moved                         merge the live head into drafts
+ *   both moved, and the merge conflicts  { outcome: "conflict" }: nothing written;
+ *                                      the branch check's issue asks for it by hand
+ *
+ * `gh(path, { method, body })` answers { status, data }. Never throws for an
+ * answer GitHub gives; a network failure does.
+ */
+export async function syncDrafts({ repo, live_branch: live, drafts_branch: drafts }, gh) {
+  const enc = encodeURIComponent
+  const cmp = await gh(`/repos/${repo}/compare/${enc(live)}...${enc(drafts)}`)
+  if (cmp.status !== 200) return { outcome: "error", status: cmp.status, step: "compare" }
+  if (cmp.data.status === "identical" || cmp.data.status === "ahead") return { outcome: "current" }
+  // Exactly the live head that was compared, not whatever the branch is by now.
+  const head = cmp.data.base_commit.sha
+  if (cmp.data.status === "behind") {
+    const ff = await gh(`/repos/${repo}/git/refs/heads/${enc(drafts)}`, {
+      method: "PATCH",
+      body: { sha: head, force: false },
+    })
+    if (ff.status === 200) return { outcome: "fast-forwarded", sha: head }
+    // 422: drafts moved since the compare, so it's no longer a fast-forward. Merge.
+    if (ff.status !== 422) return { outcome: "error", status: ff.status, step: "fast-forward" }
+  }
+  const m = await gh(`/repos/${repo}/merges`, {
+    method: "POST",
+    body: { base: drafts, head, commit_message: SYNC_MESSAGE },
+  })
+  if (m.status === 201) return { outcome: "merged", sha: m.data.sha }
+  if (m.status === 204) return { outcome: "current" }
+  if (m.status === 409) return { outcome: "conflict" }
+  return { outcome: "error", status: m.status, step: "merge" }
 }

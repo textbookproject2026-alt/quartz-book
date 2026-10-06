@@ -16,6 +16,8 @@ name: reconcile
 # main is green; the pull request's design preview came first. A run from any
 # other branch builds with that branch's own commit, and deploys nothing.
 #
+# Every run from main first keeps each book's drafts branch current with its live
+# branch (the drafts job), so the plan sees, and builds, the moved drafts.
 # On the 15-minute tick it also flags work outside drafts (the branches job),
 # and asks whether quartz-edition-extras' main is
 # ahead of the pin, and if so starts bump-extras.yml, the bot pull request.
@@ -39,7 +41,71 @@ permissions:
   contents: read
 
 jobs:
+  # Drafts current with the live branch (builder/sync-drafts.mjs, 06 Oct), for
+  # the books in this run. A no-op when drafts has everything; otherwise a
+  # fast-forward or a merge, pushed as one of two Apps: the books App in the books
+  # org, the quartz-book bot App in the platform's own account. build-nudge
+  # ignores those Apps' pushes to a drafts branch, so this never starts another
+  # run: the plan below already reads the new head. Every step is
+  # continue-on-error and only main's steps run, so this job always succeeds and
+  # never holds up the plan (a skipped or failed job would skip every job after
+  # it).
+  drafts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        if: github.ref == 'refs/heads/main'
+        with:
+          ref: refs/tags/stable
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        if: github.ref == 'refs/heads/main'
+        with:
+          node-version-file: .node-version
+
+      - name: The books org, from the registry
+        id: owner
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: echo "owner=$(curl -fsS https://raw.githubusercontent.com/textbookproject2026-alt/textbook-registry/main/registry.json | jq -er .platform.books_owner)" >> "$GITHUB_OUTPUT"
+
+      - name: The books App's token, for the books org
+        id: books
+        if: github.ref == 'refs/heads/main' && vars.BOOKS_APP_CLIENT_ID != '' && steps.owner.outputs.owner != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.BOOKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOOKS_APP_PRIVATE_KEY }}
+          owner: ${{ steps.owner.outputs.owner }}
+          permission-contents: write
+
+      - name: The quartz-book bot App's token, for the platform's own account
+        id: platform
+        if: github.ref == 'refs/heads/main' && vars.BOT_APP_CLIENT_ID != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: write
+
+      - name: Bring each book's drafts up to its live branch
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          SLUG: ${{ inputs.slug }}
+          BOOKS_OWNER: ${{ steps.owner.outputs.owner }}
+          BOOKS_TOKEN: ${{ steps.books.outputs.token }}
+          PLATFORM_OWNER: ${{ github.repository_owner }}
+          PLATFORM_TOKEN: ${{ steps.platform.outputs.token }}
+        run: node builder/sync-drafts.mjs
+
   plan:
+    needs: drafts
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -189,6 +255,7 @@ jobs:
   # BOOKS_APP_PRIVATE_KEY, Issues write), one issue per book is kept up to date.
   # Like extras, it never fails the run.
   branches:
+    needs: drafts
     if: inputs.woken_by == 'cron' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -216,8 +283,24 @@ jobs:
           owner: ${{ steps.owner.outputs.owner }}
           permission-issues: write
 
+      # Fails until the quartz-book bot App has Issues: write (README); then the
+      # books in the platform's own account get their issue too.
+      - name: The quartz-book bot App's token, for the issues
+        id: platform
+        if: vars.BOT_APP_CLIENT_ID != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-issues: write
+
       - name: Flag work outside drafts
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUES_TOKEN: ${{ steps.app.outputs.token }}
+          BOOKS_OWNER: ${{ steps.owner.outputs.owner }}
+          BOOKS_TOKEN: ${{ steps.app.outputs.token }}
+          PLATFORM_OWNER: ${{ github.repository_owner }}
+          PLATFORM_TOKEN: ${{ steps.platform.outputs.token }}
         run: node builder/branches.mjs
