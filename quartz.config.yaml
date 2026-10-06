@@ -187,15 +187,19 @@ plugins:
     layout:
       position: beforeBody
       priority: 30
+  # Builder: off. The book's title is in edit-on-github's sticky header (6 Oct).
   - source: github:quartz-community/page-title
-    enabled: true
+    enabled: false
     layout:
       position: left
       priority: 10
-  # The reader's dark-mode toggle (decided 28 Sep 2026, palette v3 of 2 Oct). It
-  # follows the system until used; the palette itself comes from design.yaml.
+  # Builder: off. Theme (Auto, Light, Dark) is in the header's Appearance panel
+  # (6 Oct), with Quartz's `theme` key, applied before first paint by
+  # edition-integrations' readerPrefs. Quartz's toggle wrote the key on every
+  # system change and read storage without a guard. The palette comes from
+  # design.yaml.
   - source: github:quartz-community/darkmode
-    enabled: true
+    enabled: false
     layout:
       position: left
       priority: 30
@@ -206,8 +210,9 @@ plugins:
       position: left
       priority: 35
       group: toolbar
+  # Builder: off. The header carries the page's place in the book (6 Oct).
   - source: github:quartz-community/breadcrumbs
-    enabled: true
+    enabled: false
     layout:
       position: beforeBody
       priority: 5
@@ -342,7 +347,10 @@ plugins:
       position: left
       priority: 5
 
-  # The controls row: Edit on GitHub, View revision history, Suggest an edit.
+  # The sticky header (6 Oct): the book's title and the page's place, Search,
+  # Contribute (Edit this page, Note to the authors, Public comment, How
+  # contributing works), Annotate, Appearance and ⋯ (Cite, Print, Page history,
+  # What links here, Download, View source). First before the page's title.
   - source:
       repo: "https://github.com/textbookproject2026-alt/quartz-edition-extras.git"
       subdir: plugins/edit-on-github
@@ -355,9 +363,11 @@ plugins:
       # links must not gain a content/ prefix (the plugin's default).
       contentDir: ""
       suggestEndpoint: "" # SET PER BOOK: the platform's endpoint when `suggest_edit.enabled`, else ""
+      authors: "" # SET PER BOOK: `maintainer.name` (Cite this page)
+      licence: "" # SET PER BOOK: `licence` (Cite this page)
     layout:
       position: beforeBody
-      priority: 25
+      priority: 1
 
 layout:
   groups:

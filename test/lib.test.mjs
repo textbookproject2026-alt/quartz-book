@@ -31,7 +31,6 @@ import {
   parseLsTree,
   renderConfig,
   slugUrl,
-  stripControls,
 } from "../builder/lib.mjs"
 
 const registry = JSON.parse(
@@ -98,6 +97,8 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
     revisionEndpoint: "https://suggest-edit.example.invalid/api/page-revision?book=design-fixture",
     sourceCommit: "",
     sourceBlobs: {},
+    authors: "Platform",
+    licence: "CC-BY-SA-4.0",
   })
   assert.equal(
     plugin(out, "edition-integrations").options.siteDomain,
@@ -152,11 +153,11 @@ test("the shared config: the home link is first in the left sidebar, on every pa
   assert.equal(home.enabled, true)
   assert.equal(home.options.url, "https://confused4now.org/")
   assert.equal(home.layout.position, "left")
-  // Above every other left-sidebar item, the page title (10) first among them.
+  // Above every other left-sidebar item. (The book's title is in the header now.)
   const left = shared.plugins.filter(
     (p) => p !== home && p.enabled && p.layout?.position === "left",
   )
-  assert.ok(left.some((p) => p.source === "github:quartz-community/page-title"))
+  assert.ok(left.some((p) => p.source === "github:quartz-community/explorer"))
   for (const p of left)
     assert.ok(p.layout.priority > home.layout.priority, JSON.stringify(p.source))
   // No page type drops it. The 404 keeps it and nothing else of the left
@@ -404,19 +405,6 @@ test("popovers don't take the builder's canonical link for an alias redirect", (
   assert.doesNotMatch(html, canonicalRegex)
   // It still recognises Quartz's own alias pages.
   assert.match('<link rel="canonical" href="../x">', canonicalRegex)
-})
-
-test("the builder's page loses its controls row", () => {
-  const html =
-    '<p>a</p><div class="tb-page-controls"><a class="edit-on-github" href="x">Edit</a></div><p>b</p>'
-  assert.equal(stripControls(html), "<p>a</p><p>b</p>")
-  // With the build stamp edit-on-github puts on the row.
-  const stamped = html.replace(
-    'class="tb-page-controls"',
-    'class="tb-page-controls" data-source-path="how-to-comment.md" data-source-commit="abc"',
-  )
-  assert.equal(stripControls(stamped), "<p>a</p><p>b</p>")
-  assert.throws(() => stripControls("<p>no row</p>"))
 })
 
 test("output: book-repo machinery fails the allowlist, generated files pass", () => {
