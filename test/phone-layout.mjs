@@ -9,14 +9,17 @@
 // closed; after navigating to another page through the menu; the annotation
 // sidebar opened (screenshot only) and closed again. In every state but the open
 // sidebar, it asserts:
+//   - one bar: Quartz's own row (the left sidebar) takes no height; the header
+//     row has the logo, then the menu button, then the title and the controls;
 //   - logo and menu button on one row: tops within 4px, the button right of the logo;
-//   - reader mode on that row too, right of the menu button;
-//   - the sticky header bar (title, Search, Contribute, Annotate, Aa, ⋯) with
+//   - reader mode on that row too, right of the menu button, or in ⋯ where the
+//     row is short of room;
+//   - the header bar (menu, title, Search, Contribute, Annotate, Aa, ⋯) with
 //     every control on one row and inside the screen;
 //   - the Hypothes.is sidebar element present and visible, with its tab, eye and
 //     note buttons at the right edge;
 //   - those buttons over no header icon, no visible text and no open-menu item;
-//   - the logo on top at its own spot (what a tap there would hit);
+//   - the logo on top at its own spot (what a tap there would hit), menu closed;
 //   - no element past the viewport width, and no horizontal scroll.
 // A screenshot of every state goes to <screenshot dir>. Exit status 1 on any
 // failure. Browsers: `npx playwright install chromium webkit` (CI), or set
@@ -61,11 +64,12 @@ const measure = () => {
     }
   }
   const q = (s) => document.querySelector(s)
-  const logoLink = q(".left.sidebar .home-link a")
+  const logoLink = q(".tb-header-slot .home-link a")
+  const readerButton = q("[data-tb-reader]")
   const header = {
-    logo: rect(q(".left.sidebar .home-link")),
-    burger: rect(q(".explorer-toggle")),
-    reader: rect(q(".left.sidebar .readermode")),
+    logo: rect(q(".tb-header-slot .home-link")),
+    burger: rect(q("[data-tb-menu]")),
+    reader: readerButton && !readerButton.hidden ? rect(readerButton) : null,
     // The sticky header bar, and its Search (Quartz's own button is hidden now).
     bar: rect(q(".tb-header")),
     search: rect(q("[data-tb-search]")),
@@ -129,9 +133,12 @@ const measure = () => {
   for (const b of hButtons)
     if (b.right > W + 1) past.push(`hypothesis ${b.label} right=${Math.round(b.right)}`)
 
+  const readerItem = q("[data-tb-reader-item]")
   return {
     W,
     path: location.pathname,
+    quartzRow: rect(q(".page > #quartz-body > .sidebar.left")),
+    readerInMore: !!readerItem && !readerItem.hidden,
     scrollWidth: document.documentElement.scrollWidth,
     header,
     barButtons,
@@ -170,7 +177,11 @@ const assertState = (m, where, expectMenuOpen) => {
       `menu button right of the logo (${Math.round(burger.left)} vs ${Math.round(logo.right)})`,
     )
   }
-  ok(search && reader, "search and reader mode present")
+  ok(
+    !!m.quartzRow && m.quartzRow.height <= 0.5,
+    `one bar: Quartz's own row has no height (${m.quartzRow && Math.round(m.quartzRow.height)}px)`,
+  )
+  ok(search && (reader || m.readerInMore), "search and reader mode (on the row or in ⋯) present")
   if (reader && burger) {
     ok(
       Math.abs(reader.top + reader.height / 2 - (burger.top + burger.height / 2)) <= 6,
@@ -178,7 +189,10 @@ const assertState = (m, where, expectMenuOpen) => {
     )
     ok(reader.left >= burger.right, "reader mode right of the menu button")
   }
-  ok(m.barButtons.length === 5, `the header bar's five controls (${m.barButtons.length})`)
+  ok(
+    m.barButtons.length === (reader ? 7 : 6),
+    `the header bar's controls: menu, Search, Contribute, Annotate, ${reader ? "Reader mode, " : ""}Aa, ⋯ (${m.barButtons.length})`,
+  )
   if (m.barButtons.length)
     ok(
       m.barButtons.every(
@@ -186,7 +200,9 @@ const assertState = (m, where, expectMenuOpen) => {
       ),
       "the header bar's controls on one row, inside the screen",
     )
-  ok(m.logoOnTop, `logo on top at its own spot (a tap there hits ${m.hitWas})`)
+  // The open drawer covers the whole screen, the bar too, but for its own close
+  // button at the menu button's place.
+  if (!m.menuOpen) ok(m.logoOnTop, `logo on top at its own spot (a tap there hits ${m.hitWas})`)
   ok(m.host && m.hostVisible, "Hypothes.is sidebar element present and visible")
   ok(m.hButtons.length >= 3, `Hypothes.is tab, eye and note buttons present (${m.hButtons.length})`)
   for (const b of m.hButtons) {
@@ -236,7 +252,14 @@ for (const deviceName of DEVICES) {
       page
         .waitForSelector("hypothesis-sidebar", { state: "attached", timeout: 30000 })
         .then(() => page.waitForTimeout(2500))
-    const toggleMenu = () => page.tap(".explorer-toggle")
+    // The header's menu button opens the drawer; the drawer's own button, shown in
+    // its place above the open drawer, closes it.
+    const toggleMenu = async () => {
+      const open = await page.evaluate(
+        () => !document.querySelector(".explorer").classList.contains("collapsed"),
+      )
+      await page.tap(open ? ".explorer .mobile-explorer" : "[data-tb-menu]")
+    }
     const clientToggle = () =>
       page.evaluate(() =>
         document
