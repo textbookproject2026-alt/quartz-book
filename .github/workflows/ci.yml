@@ -116,12 +116,13 @@ jobs:
           node test/layout-checks.mjs http://127.0.0.1:8803/ "$RUNNER_TEMP/layout-checks"
 
       - name: Layout checks on the pull request
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles(format('{0}/layout-checks/summary.md', runner.temp)) != ''
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
+          [ -f "$RUNNER_TEMP/layout-checks/summary.md" ] || exit 0
           body="$RUNNER_TEMP/layout-comment.md"
           { echo "<!-- layout-checks -->"; cat "$RUNNER_TEMP/layout-checks/summary.md"; echo; echo "At \`${HEAD:0:7}\`; screenshots of failing widths in the run's layout-checks artifact."; } > "$body"
           id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- layout-checks -->")) | .id' | head -1)
