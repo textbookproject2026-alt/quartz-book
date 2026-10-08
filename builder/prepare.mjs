@@ -95,15 +95,19 @@ try {
   const indexFile = join(book, "index.md")
   let indexText = existsSync(indexFile) ? readFileSync(indexFile, "utf8") : ""
   if (indexText) {
-    const pages = bookPages(git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0")).map((path) => ({
-      path,
-      title: pageTitle(readFileSync(join(book, path), "utf8"), path),
-    }))
+    const pages = bookPages(git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0")).map(
+      (path) => ({
+        path,
+        title: pageTitle(readFileSync(join(book, path), "utf8"), path),
+      }),
+    )
     const completed = completeContents(indexText, pages)
     if (completed.added.length) {
       indexText = completed.text
       writeFileSync(join(content, "index.md"), indexText)
-      console.log(`prepare: added to the Contents, not in index.md's: ${completed.added.join(", ")}`)
+      console.log(
+        `prepare: added to the Contents, not in index.md's: ${completed.added.join(", ")}`,
+      )
     }
   }
   const order = contentsOrder(indexText)

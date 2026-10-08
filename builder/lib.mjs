@@ -215,8 +215,17 @@ export function completeContents(indexMarkdown, pages) {
   let n = m?.[3] ? Number(m[3]) : 0
   const marker = () => (m?.[3] ? `${++n}${m[4]}` : (m?.[2] ?? "-"))
   const label = (t) => t.replace(/\s+/g, " ").trim().replace(/\|/g, "-").replace(/\]\]/g, "] ]")
-  const items = missing.map((p) => `${m?.[1] ?? ""}${marker()} [[${p.path.replace(/\.md$/i, "")}|${label(p.title)}]]`)
-  if (last === -1) lines.splice(start + 1, 0, "", ...items, ...(start + 1 < lines.length && lines[start + 1].trim() ? [""] : []))
+  const items = missing.map(
+    (p) => `${m?.[1] ?? ""}${marker()} [[${p.path.replace(/\.md$/i, "")}|${label(p.title)}]]`,
+  )
+  if (last === -1)
+    lines.splice(
+      start + 1,
+      0,
+      "",
+      ...items,
+      ...(start + 1 < lines.length && lines[start + 1].trim() ? [""] : []),
+    )
   else lines.splice(at + 1, 0, ...items)
   return { text: lines.join(eol), added: missing.map((p) => p.path) }
 }

@@ -58,15 +58,26 @@ try {
 
   await page.goto(base, { waitUntil: "load" })
   await page.waitForSelector(".explorer-ul a", { state: "attached" })
-  const path = (as) => as.map((a) => decodeURIComponent(new URL(a.href).pathname).replace(/^\//, "").replace(/\.html$/, ""))
+  const path = (as) =>
+    as.map((a) =>
+      decodeURIComponent(new URL(a.href).pathname)
+        .replace(/^\//, "")
+        .replace(/\.html$/, ""),
+    )
   // Every page link is in the explorer's markup, folded folders included; folder links end in "/".
-  const explorer = (await page.$$eval(".explorer-ul li > a", path)).filter((p) => p !== "how-to-comment" && !p.endsWith("/"))
+  const explorer = (await page.$$eval(".explorer-ul li > a", path)).filter(
+    (p) => p !== "how-to-comment" && !p.endsWith("/"),
+  )
   // Each item's first link, from the lists between the Contents heading and the next heading.
   const contents = path(
     await page.evaluate(() => {
       const links = []
       const h = document.querySelector("article h2#contents")
-      for (let el = h?.nextElementSibling; el && !/^H[1-6]$/.test(el.tagName); el = el.nextElementSibling)
+      for (
+        let el = h?.nextElementSibling;
+        el && !/^H[1-6]$/.test(el.tagName);
+        el = el.nextElementSibling
+      )
         for (const li of el.matches("ol, ul") ? el.children : []) {
           const a = li.querySelector("a.internal")
           if (a) links.push({ href: a.href })
@@ -75,8 +86,16 @@ try {
     }),
   )
   console.log(`explorer: ${explorer.join(", ")}\ncontents: ${contents.join(", ")}`)
-  assert.deepEqual(explorer, contents.filter((p) => explorer.includes(p)), "the explorer and the Contents differ in order")
-  assert.deepEqual([...explorer].sort(), [...new Set(contents)].sort(), "the explorer and the Contents list different pages")
+  assert.deepEqual(
+    explorer,
+    contents.filter((p) => explorer.includes(p)),
+    "the explorer and the Contents differ in order",
+  )
+  assert.deepEqual(
+    [...explorer].sort(),
+    [...new Set(contents)].sort(),
+    "the explorer and the Contents list different pages",
+  )
   console.log(`pass  the explorer's ${explorer.length} pages are the Contents', in its order`)
 } finally {
   await browser.close()

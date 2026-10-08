@@ -383,21 +383,42 @@ test("completeContents: pages missing from the Contents go at its end, in the li
 })
 
 test("completeContents: no Contents heading gets one at the end; bullets stay bullets", () => {
-  const { text } = completeContents("# T\n\n## Chapters\n\n1. [[chapter-01|x]]\n", [{ path: "chapters/chapter-01.md", title: "One" }])
-  assert.equal(text, "# T\n\n## Chapters\n\n1. [[chapter-01|x]]\n\n## Contents\n\n- [[chapters/chapter-01|One]]\n")
-  const bullets = completeContents("## Contents\n\n- [[a|A]]\n", [{ path: "b.md", title: "B" }]).text
+  const { text } = completeContents("# T\n\n## Chapters\n\n1. [[chapter-01|x]]\n", [
+    { path: "chapters/chapter-01.md", title: "One" },
+  ])
+  assert.equal(
+    text,
+    "# T\n\n## Chapters\n\n1. [[chapter-01|x]]\n\n## Contents\n\n- [[chapters/chapter-01|One]]\n",
+  )
+  const bullets = completeContents("## Contents\n\n- [[a|A]]\n", [
+    { path: "b.md", title: "B" },
+  ]).text
   assert.equal(bullets, "## Contents\n\n- [[a|A]]\n- [[b|B]]\n")
 })
 
 test("bookPages: the explorer's pages, not index.md files, asset notes or files outside the allowlist", () => {
   assert.deepEqual(
-    bookPages(["index.md", "chapters/chapter-10.md", "chapters/chapter-2.md", "chapters/Definitions/index.md", "glossary.md", "assets/a/notes.md", "README.md", "docs/x.md", "chapters/x.docx", ""]),
+    bookPages([
+      "index.md",
+      "chapters/chapter-10.md",
+      "chapters/chapter-2.md",
+      "chapters/Definitions/index.md",
+      "glossary.md",
+      "assets/a/notes.md",
+      "README.md",
+      "docs/x.md",
+      "chapters/x.docx",
+      "",
+    ]),
     ["chapters/chapter-2.md", "chapters/chapter-10.md", "glossary.md"],
   )
 })
 
 test("pageTitle: front matter title, else the first heading, else the file name", () => {
-  assert.equal(pageTitle('---\ntitle: "Chapter 2: Methods"\n---\n\n# Other\n', "c.md"), "Chapter 2: Methods")
+  assert.equal(
+    pageTitle('---\ntitle: "Chapter 2: Methods"\n---\n\n# Other\n', "c.md"),
+    "Chapter 2: Methods",
+  )
   assert.equal(pageTitle("---\n#title: x\n---\n\n# Chapter 1\n", "c.md"), "Chapter 1")
   assert.equal(pageTitle("Just text.\n", "chapters/chapter-04.md"), "chapter-04")
 })
