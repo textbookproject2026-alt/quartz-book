@@ -260,11 +260,28 @@ test("the fixture on its live branch", async (t) => {
     assert.doesNotMatch(b.read("static/contentIndex.json"), /"assets\//)
   })
   await t.test("the head carries index.md's Contents order, for the explorer", () => {
+    // The fixture's Contents lists two chapters; the builder adds the pages it
+    // misses at its end (completeContents), so the explorer shows every page.
     assert.ok(
       b
         .read("chapters/chapter-01.html")
-        .includes('var ORDER = ["chapters/chapter-01","chapters/qa"]'),
+        .includes(
+          'var ORDER = ["chapters/chapter-01","chapters/qa","chapters/definitions/the-three-domains","community/contributors","glossary"]',
+        ),
     )
+  })
+  await t.test("the front page's Contents lists the pages index.md's own list missed", () => {
+    const html = b.read("index.html")
+    for (const href of [
+      "./chapters/Definitions/The-Three-Domains",
+      "./community/contributors",
+      "./glossary",
+    ])
+      assert.match(
+        html,
+        new RegExp(`href="${href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`, "i"),
+        href,
+      )
   })
   await t.test("the chapters folder page lists its pages in Contents order", () => {
     const links = [
