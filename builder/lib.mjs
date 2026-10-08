@@ -222,6 +222,11 @@ export function contentsOrder(indexMarkdown) {
 /** Markdown under assets/ is the book's own notes (the authoring app's README), not pages. */
 export const ASSET_NOTES = "assets/**/*.md"
 
+/** Word-processor files an author drops into a content folder are sources, not pages. */
+export const WORD_FILES = ["docx", "doc", "odt", "pages", "rtf"]
+  .map((ext) => `**/*.${ext}`)
+  .concat("**/*.pages/**") // a .pages document can be a folder
+
 /**
  * Which of the book repo's paths become part of the site: a top-level name on the
  * allowlist (a file by name, a folder with everything in it), except the globs.
@@ -229,7 +234,7 @@ export const ASSET_NOTES = "assets/**/*.md"
  * going-live list) can tell reader-facing changes from behind-the-scenes ones by
  * the rule the deployed builder used, not a copy of it.
  */
-export const SERVES = { paths: ALLOWLIST, except: [ASSET_NOTES] }
+export const SERVES = { paths: ALLOWLIST, except: [ASSET_NOTES, ...WORD_FILES] }
 
 /**
  * Quartz ignorePatterns for everything at the top of the book repo that isn't on
@@ -241,7 +246,7 @@ export function ignorePatternsFor(entries) {
     .filter((name) => name !== ".git" && !ALLOWLIST.includes(name))
     .sort()
     .flatMap((name) => [name, `${name}/**`])
-    .concat(ASSET_NOTES)
+    .concat(ASSET_NOTES, WORD_FILES)
 }
 
 /** Quartz's slug for a root-level name, near enough to catch a collision. */
