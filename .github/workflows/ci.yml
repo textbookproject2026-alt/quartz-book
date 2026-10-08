@@ -19,6 +19,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The layout checks' summary goes on the pull request as one comment.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v6
 
@@ -102,6 +106,31 @@ jobs:
           sleep 1
           node test/phone-layout.mjs http://127.0.0.1:8801/ "$RUNNER_TEMP/phone-layout"
 
+      # The reader's layout at a dozen widths at and around each switch point, in
+      # Chromium and WebKit, and an Android Chrome emulation (test/layout-checks.mjs).
+      - name: Layout checks (header, panels, scroll, reading)
+        id: layout
+        run: |
+          node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8803 &
+          sleep 1
+          node test/layout-checks.mjs http://127.0.0.1:8803/ "$RUNNER_TEMP/layout-checks"
+
+      - name: Layout checks on the pull request
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles(format('{0}/layout-checks/summary.md', runner.temp)) != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          body="$RUNNER_TEMP/layout-comment.md"
+          { echo "<!-- layout-checks -->"; cat "$RUNNER_TEMP/layout-checks/summary.md"; echo; echo "At \`${HEAD:0:7}\`; screenshots of failing widths in the run's layout-checks artifact."; } > "$body"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq '.[] | select(.body | startswith("<!-- layout-checks -->")) | .id' | head -1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$body" --silent
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$body" --silent
+          fi
+
       - name: The explorer and the folder page follow index.md's Contents
         run: |
           node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8802 &
@@ -114,6 +143,15 @@ jobs:
         with:
           name: phone-layout
           path: ${{ runner.temp }}/phone-layout
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Keep the layout checks' screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: layout-checks
+          path: ${{ runner.temp }}/layout-checks
           if-no-files-found: ignore
           retention-days: 14
 
