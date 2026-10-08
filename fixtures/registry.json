@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "platform": {
+    "portal": { "domain": "portal.example.invalid" },
     "suggest_edit_endpoint": "https://suggest-edit.example.invalid/api/suggest-edit",
     "analytics": null
   },
