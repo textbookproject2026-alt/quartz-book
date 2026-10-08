@@ -100,6 +100,9 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     // The platform's Privacy page (the portal's /privacy): every footer, and the
     // first-visit notice.
     privacyUrl: privacyUrl(registry),
+    // Hypothes.is groups readers may use besides the platform's anchor group
+    // (registry annotations.hypothesis_groups; the public layer is off).
+    hypothesisGroups: (book.annotations?.hypothesis_groups ?? []).map((g) => g.id),
     licence: book.licence,
     authors: book.maintainer?.name ?? "",
     editionTemplateRepo: book.editions?.template_repo ?? null,
@@ -180,6 +183,7 @@ export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
     siteDomain: opts.domain,
     explorerOrder,
     privacyUrl: opts.privacyUrl ?? "",
+    hypothesisGroups: opts.hypothesisGroups ?? [],
   })
   Object.assign(plugin("edit-on-github").options, {
     repo: opts.repo,
