@@ -892,7 +892,7 @@ test("syncDrafts: a conflict writes nothing and says so; other refusals are erro
   })
 })
 
-test("statistics: the shared link, else the public dashboard, only for a live book", () => {
+test("statistics: the public dashboard, only for a live book", () => {
   const reg = (plausible) => ({
     platform: { analytics: { plausible }, portal: { domain: "confused4now.org" } },
   })
@@ -902,12 +902,6 @@ test("statistics: the shared link, else the public dashboard, only for a live bo
     dashboard_public: true,
   }
   assert.equal(statsDashboard(reg(p)), "https://plausible.io/confused4now.org")
-  assert.equal(
-    statsDashboard(
-      reg({ ...p, shared_link: "https://plausible.io/share/confused4now.org?auth=k" }),
-    ),
-    "https://plausible.io/share/confused4now.org?auth=k",
-  )
   assert.equal(statsDashboard(reg({ ...p, dashboard_public: false })), "")
   assert.equal(statsDashboard(reg(null)), "")
   assert.equal(privacyUrl(reg(p)), "https://confused4now.org/#privacy")
