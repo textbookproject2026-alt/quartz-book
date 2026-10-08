@@ -12,7 +12,7 @@ import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { REGISTRY_URL, contentsOrder } from "../builder/lib.mjs"
+import { REGISTRY_URL, bookContents, contentsOrder } from "../builder/lib.mjs"
 
 const registry = await (await fetch(REGISTRY_URL)).json()
 const liveOnBuilder = registry.books.filter(
@@ -97,7 +97,12 @@ check("the graph is on, and the builder's /how-to-comment is there", () => {
 })
 
 check("the page's head carries index.md's Contents order, for the explorer", () => {
-  const order = contentsOrder(readFileSync(join(checkout, "index.md"), "utf8"))
+  // With the pages index.md's own list misses added at its end, as the build does.
+  const files = execFileSync("git", ["-C", checkout, "ls-files", "-z"], { encoding: "utf8" }).split(
+    "\0",
+  )
+  const read = (path) => readFileSync(join(checkout, path), "utf8")
+  const order = contentsOrder(bookContents(read("index.md"), files, read).text)
   assert.ok(order.length, "index.md has no Contents list")
   assert.ok(pageHtml().includes(`var ORDER = ${JSON.stringify(order)}`), "no explorer order")
 })

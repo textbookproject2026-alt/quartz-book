@@ -22,13 +22,11 @@ import {
   HOW_TO_COMMENT,
   REGISTRY_URL,
   bookOptions,
-  bookPages,
-  completeContents,
+  bookContents,
   contentsOrder,
   findBook,
   howToCommentClash,
   ignorePatternsFor,
-  pageTitle,
   parseCommitInfo,
   parseFollowLog,
   parseGitLog,
@@ -95,13 +93,11 @@ try {
   const indexFile = join(book, "index.md")
   let indexText = existsSync(indexFile) ? readFileSync(indexFile, "utf8") : ""
   if (indexText) {
-    const pages = bookPages(git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0")).map(
-      (path) => ({
-        path,
-        title: pageTitle(readFileSync(join(book, path), "utf8"), path),
-      }),
+    const completed = bookContents(
+      indexText,
+      git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0"),
+      (path) => readFileSync(join(book, path), "utf8"),
     )
-    const completed = completeContents(indexText, pages)
     if (completed.added.length) {
       indexText = completed.text
       writeFileSync(join(content, "index.md"), indexText)

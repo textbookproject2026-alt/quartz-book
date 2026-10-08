@@ -230,6 +230,17 @@ export function completeContents(indexMarkdown, pages) {
   return { text: lines.join(eol), added: missing.map((p) => p.path) }
 }
 
+/**
+ * completeContents for a book checkout: `files` is its tracked files (git ls-files)
+ * and `read(path)` a file's text. The builder's prepare step and the live-book
+ * check both use it, so they agree on the order.
+ */
+export const bookContents = (indexMarkdown, files, read) =>
+  completeContents(
+    indexMarkdown,
+    bookPages(files).map((path) => ({ path, title: pageTitle(read(path), path) })),
+  )
+
 /** A repo path as contentsOrder's slug: "chapters/Definitions/A b.md" -> "chapters/definitions/a-b". */
 const pageSlug = (path) => path.replace(/\.md$/i, "").replace(/\s+/g, "-").toLowerCase()
 
