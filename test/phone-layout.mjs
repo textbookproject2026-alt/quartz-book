@@ -10,16 +10,17 @@
 // sidebar opened (screenshot only) and closed again. In every state but the open
 // sidebar, it asserts:
 //   - one bar: Quartz's own row (the left sidebar) takes no height; the header
-//     row has the logo, then the menu button, then the title and the controls;
-//   - logo and menu button on one row: tops within 4px, the button right of the logo;
+//     row has the menu button at its left edge (the 16px gutter), then the logo,
+//     the title and the controls;
+//   - menu button and logo on one row: tops within 4px, the logo right of the button;
 //   - reader mode on that row too, right of the menu button, or in ⋯ where the
 //     row is short of room;
 //   - the header bar (menu, title, Search, Contribute, Annotate, Aa, ⋯) with
-//     every control on one row and inside the screen;
-//   - the Hypothes.is sidebar element present and visible, with its tab, eye and
-//     note buttons at the right edge;
-//   - those buttons over no header icon, no visible text and no open-menu item;
-//   - the logo on top at its own spot (what a tap there would hit), menu closed;
+//     every control on one row and inside the screen, and on top, the drawer
+//     open or not (it opens below the header);
+//   - no annotation strip: the Hypothes.is client present, its host not drawn
+//     while closed, so no tab or bucket bar over the page;
+//   - the logo on top at its own spot (what a tap there would hit);
 //   - no element past the viewport width, and no horizontal scroll.
 // A screenshot of every state goes to <screenshot dir>. Exit status 1 on any
 // failure. Browsers: `npx playwright install chromium webkit` (CI), or set
@@ -74,7 +75,7 @@ const measure = () => {
     bar: rect(q(".tb-header")),
     search: rect(q("[data-tb-search]")),
   }
-  const barButtons = [...document.querySelectorAll(".tb-header .tb-hdr-btn")]
+  const barButtons = [...document.querySelectorAll(".tb-header-slot .tb-hdr-btn")]
     .filter((b) => !b.hidden)
     .map(rect)
   const lr = rect(logoLink)
@@ -154,9 +155,6 @@ const measure = () => {
   }
 }
 
-const overlaps = (a, b) =>
-  a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
-
 /** The assertions for one state. */
 const assertState = (m, where, expectMenuOpen) => {
   const fail = (what) => failures.push(`${where}: ${what}`)
@@ -173,8 +171,12 @@ const assertState = (m, where, expectMenuOpen) => {
       `logo and menu button on one row (tops ${Math.round(logo.top)} / ${Math.round(burger.top)})`,
     )
     ok(
-      burger.left >= logo.right,
-      `menu button right of the logo (${Math.round(burger.left)} vs ${Math.round(logo.right)})`,
+      logo.left >= burger.right,
+      `logo right of the menu button (${Math.round(logo.left)} vs ${Math.round(burger.right)})`,
+    )
+    ok(
+      Math.abs(burger.left - 16) <= 1,
+      `menu button at the 16px gutter (x ${Math.round(burger.left)})`,
     )
   }
   ok(
@@ -200,22 +202,17 @@ const assertState = (m, where, expectMenuOpen) => {
       ),
       "the header bar's controls on one row, inside the screen",
     )
-  // The open drawer covers the whole screen, the bar too, but for its own close
-  // button at the menu button's place.
-  if (!m.menuOpen) ok(m.logoOnTop, `logo on top at its own spot (a tap there hits ${m.hitWas})`)
-  ok(m.host && m.hostVisible, "Hypothes.is sidebar element present and visible")
-  ok(m.hButtons.length >= 3, `Hypothes.is tab, eye and note buttons present (${m.hButtons.length})`)
-  for (const b of m.hButtons) {
-    ok(
-      b.width > 0 && b.right <= m.W + 1 && b.left >= m.W - 60,
-      `${b.label} at the right edge (x ${Math.round(b.left)})`,
-    )
-    for (const [name, r] of Object.entries(m.header))
-      if (!m.menuOpen || name === "logo" || name === "burger")
-        ok(!overlaps(b, r), `${b.label} over the ${name}`)
-    ok(!m.textLines.some((t) => overlaps(b, t)), `${b.label} over body text`)
-    ok(!m.menuItems.some((t) => overlaps(b, t)), `${b.label} over a menu item`)
-  }
+  // The drawer opens below the header: the bar stays usable, the logo included.
+  ok(m.logoOnTop, `logo on top at its own spot (a tap there hits ${m.hitWas})`)
+  ok(m.host, "Hypothes.is client present")
+  ok(
+    !m.hostVisible,
+    "no annotation strip: the client's host isn't drawn while its sidebar is closed",
+  )
+  ok(
+    m.hButtons.every((b) => b.width === 0),
+    `no annotation tab or bucket-bar buttons on the page (${m.hButtons.filter((b) => b.width > 0).length})`,
+  )
   ok(m.scrollWidth <= m.W, `no horizontal scroll (page ${m.scrollWidth} > ${m.W})`)
   ok(m.past.length === 0, `nothing past the viewport width: ${m.past.join(", ")}`)
 }
@@ -252,14 +249,8 @@ for (const deviceName of DEVICES) {
       page
         .waitForSelector("hypothesis-sidebar", { state: "attached", timeout: 30000 })
         .then(() => page.waitForTimeout(2500))
-    // The header's menu button opens the drawer; the drawer's own button, shown in
-    // its place above the open drawer, closes it.
-    const toggleMenu = async () => {
-      const open = await page.evaluate(
-        () => !document.querySelector(".explorer").classList.contains("collapsed"),
-      )
-      await page.tap(open ? ".explorer .mobile-explorer" : "[data-tb-menu]")
-    }
+    // The header's menu button opens the drawer, below the header, and closes it.
+    const toggleMenu = () => page.tap("[data-tb-menu]")
     const clientToggle = () =>
       page.evaluate(() =>
         document
