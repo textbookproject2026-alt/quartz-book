@@ -54,10 +54,10 @@ export function statsDashboard(registry) {
   return p.shared_link || (p.dashboard_public ? `https://plausible.io/${p.site}` : "")
 }
 
-/** The platform's Privacy page, on the portal. */
+/** The platform's Privacy page: a section of the portal (its apex serves one page). */
 export const privacyUrl = (registry) => {
   const domain = registry.platform?.portal?.domain
-  return domain ? `https://${domain}/privacy` : ""
+  return domain ? `https://${domain}/#privacy` : ""
 }
 
 export function bookOptions(registry, book, branch, { preview = false } = {}) {
@@ -97,7 +97,7 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     statsUrl: counted ? statsDashboard(registry) : "",
     // registry books[].type: the header badge. Absent means a book.
     type: book.type ?? "book",
-    // The platform's Privacy page (the portal's /privacy): every footer, and the
+    // The platform's Privacy page (the portal's /#privacy): every footer, and the
     // first-visit notice.
     privacyUrl: privacyUrl(registry),
     licence: book.licence,
