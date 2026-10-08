@@ -45,13 +45,13 @@ export function findBook(registry, slug) {
  * configure.mjs and templates/publish.js for the site (§0).
  */
 /**
- * The platform's Plausible dashboard: its shared link (analytics.plausible.shared_link,
- * pasted once), else the public dashboard when it is public, else "" (no statistics links).
+ * The platform's public Plausible dashboard (https://plausible.io/<site>, public for
+ * good, decided 9 Oct 2026), or "" when it isn't public: no statistics links.
  */
 export function statsDashboard(registry) {
   const p = registry.platform?.analytics?.plausible
   if (!p) return ""
-  return p.shared_link || (p.dashboard_public ? `https://plausible.io/${p.site}` : "")
+  return p.dashboard_public ? `https://plausible.io/${p.site}` : ""
 }
 
 /** The platform's Privacy page: a section of the portal (its apex serves one page). */
