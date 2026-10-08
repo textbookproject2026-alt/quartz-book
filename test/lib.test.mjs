@@ -112,11 +112,11 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
   // Every footer links the platform's Privacy page, and the first-visit notice does.
   assert.equal(
     plugin(out, "footer").options.links.Privacy,
-    "https://portal.example.invalid/#privacy",
+    "https://portal.example.invalid/privacy",
   )
   assert.equal(
     plugin(out, "edition-integrations").options.privacyUrl,
-    "https://portal.example.invalid/#privacy",
+    "https://portal.example.invalid/privacy",
   )
   assert.equal(
     plugin(out, "edition-integrations").options.siteDomain,
@@ -128,7 +128,7 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
   assert.deepEqual(out.configuration.ignorePatterns, ["README.md", "README.md/**"])
   assert.deepEqual(plugin(out, "footer").options.links, {
     "Licence (CC-BY-SA-4.0)": "https://creativecommons.org/licenses/by-sa/4.0/",
-    Privacy: "https://portal.example.invalid/#privacy",
+    Privacy: "https://portal.example.invalid/privacy",
   })
   // The shared config itself is untouched.
   assert.equal(plugin(shared, "edit-on-github").options.repo, "")
@@ -910,7 +910,7 @@ test("statistics: the shared link, else the public dashboard, only for a live bo
   )
   assert.equal(statsDashboard(reg({ ...p, dashboard_public: false })), "")
   assert.equal(statsDashboard(reg(null)), "")
-  assert.equal(privacyUrl(reg(p)), "https://confused4now.org/#privacy")
+  assert.equal(privacyUrl(reg(p)), "https://confused4now.org/privacy")
   const registry = JSON.parse(
     readFileSync(new URL("../fixtures/registry.json", import.meta.url), "utf8"),
   )
