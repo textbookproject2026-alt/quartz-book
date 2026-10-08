@@ -24,6 +24,12 @@
 //            18px with 35 to 75 characters a line (from 360px; characters a line
 //            = the column's width over the body text's average character width);
 //            Small text at least 16px.
+//   sidebar  (Chromium, between the drawer's edge and the open-sidebar
+//            arrangement's edge: just above the drawer, the middle, just below
+//            the edge) Annotate opens the sidebar; either the explorer is the
+//            drawer and the text with its pencils ends left of the sidebar, the
+//            column at least 560px, or the sidebar is across the screen below the
+//            header as on a phone. Closing it puts the explorer back as it was.
 //   android  Pixel 7 (its UA, scale, touch, mobile viewport) at 360, 390 and
 //            412px: reading, no sideways scroll or zoom-out, the drawer, and
 //            Annotate opening the annotation sidebar across the screen below the
@@ -268,6 +274,82 @@ const annotationOpen = () => {
   return out
 }
 
+// The open sidebar where the explorer is a sidebar but the page doesn't make room.
+const sidebarClear = () => {
+  const root = document.documentElement
+  const c = document
+    .querySelector("hypothesis-sidebar")
+    ?.shadowRoot?.querySelector(".sidebar-container")
+  if (!c || !root.classList.contains("tb-hypothesis-expanded"))
+    return { problems: ["Annotate didn't open the sidebar"] }
+  const r = c.getBoundingClientRect()
+  const s = document.querySelector(".tb-header-slot").getBoundingClientRect()
+  if (root.classList.contains("tb-anno-sheet")) {
+    const out = []
+    if (Math.abs(r.left) > 1 || Math.abs(r.right - innerWidth) > 1)
+      out.push("phone sheet not the screen's width")
+    if (r.top < s.bottom - 1) out.push("phone sheet over the header")
+    return { mode: "sheet", problems: out }
+  }
+  const out = []
+  if (!root.classList.contains("tb-anno-drawer"))
+    out.push("the text sits under the open sidebar (no drawer, no sheet)")
+  if (!document.querySelector(".explorer")?.classList.contains("collapsed"))
+    out.push("the explorer isn't the closed drawer")
+  const a = document.querySelector(".center article").getBoundingClientRect()
+  // The pencils sit 2.5rem right of each paragraph.
+  if (a.right + 40 > r.left + 1)
+    out.push(
+      `text and pencils end at ${Math.round(a.right + 40)}px, sidebar starts at ${Math.round(r.left)}px`,
+    )
+  if (a.width < 560) out.push(`column ${Math.round(a.width)}px beside the sidebar (< 560)`)
+  return { mode: "drawer", problems: out }
+}
+
+const sidebarGap = async (browser, width) => {
+  checks++
+  const ctx = await browser.newContext({ viewport: { width, height: H } })
+  await ctx.addInitScript(() => {
+    try {
+      localStorage.setItem("tb-contribute-explained", "1")
+    } catch {}
+  })
+  const page = await ctx.newPage()
+  const where = `chromium ${width}px sidebar`
+  if (!(await open(page))) {
+    fail(where, ["the page didn't load"])
+    return ctx.close()
+  }
+  await page
+    .waitForSelector("hypothesis-sidebar", { state: "attached", timeout: 30000 })
+    .catch(() => {})
+  await page.waitForTimeout(1000)
+  const before = await page.evaluate(() =>
+    document.querySelector(".explorer")?.classList.contains("collapsed"),
+  )
+  // Hypothes.is closes its sidebar on a pointer press in the page: the keyboard opens it.
+  await page.focus("[data-tb-annotate]")
+  await page.keyboard.press("Enter")
+  await page.waitForTimeout(3000)
+  const { mode, problems } = await page.evaluate(sidebarClear)
+  await page.evaluate(() => window.tbAnnotations?.close?.())
+  await page.waitForTimeout(1200)
+  const after = await page.evaluate(() => ({
+    classes: /tb-anno-(drawer|sheet)/.test(document.documentElement.className),
+    collapsed: document.querySelector(".explorer")?.classList.contains("collapsed"),
+  }))
+  if (after.classes) problems.push("closing the sidebar left the drawer or sheet in place")
+  if (after.collapsed !== before) problems.push("closing the sidebar didn't put the explorer back")
+  if (problems.length) {
+    fail(where, problems)
+    await page.screenshot({ path: join(outDir, `chromium-${width}-sidebar.png`) })
+  }
+  console.log(
+    `${problems.length ? "FAIL" : "ok  "} ${where} (${mode ?? "-"})${problems.length ? ": " + problems.join("; ") : ""}`,
+  )
+  await ctx.close()
+}
+
 // --- per width -----------------------------------------------------------------------
 const widthsFrom = async (browser) => {
   const page = await (await browser.newContext({ viewport: { width: 1920, height: H } })).newPage()
@@ -299,7 +381,10 @@ const widthsFrom = async (browser) => {
   if (p.narrow) [p.narrow, p.narrow + 1].forEach((w) => ws.add(w))
   if (p.desktop) [p.desktop, p.desktop + 1].forEach((w) => ws.add(w))
   if (p.room) [p.room - 1, p.room + 1].forEach((w) => ws.add(w))
-  return { widths: [...ws].sort((a, b) => a - b), narrow: p.narrow ?? 800 }
+  // The open sidebar's band: just above the drawer, the middle, just below the room rule.
+  const gap =
+    p.narrow && p.room ? [p.narrow + 1, Math.round((p.narrow + p.room) / 2), p.room - 1] : []
+  return { widths: [...ws].sort((a, b) => a - b), narrow: p.narrow ?? 800, gap }
 }
 
 const atWidth = async (browser, engine, width, narrow) => {
@@ -467,9 +552,12 @@ const desktopFigure = async (browser) => {
 const started = Date.now()
 const runEngine = async (engineName) => {
   const browser = await launch(engineName === "webkit" ? webkit : chromium)
-  const { widths, narrow } = await widthsFrom(browser)
-  for (const w of widths) await atWidth(browser, engineName, w, narrow)
-  if (engineName === "chromium") {
+  const { widths, narrow, gap } = await widthsFrom(browser)
+  // LAYOUT_ONLY=sidebar: just the open-sidebar band, for a quick local check.
+  const only = process.env.LAYOUT_ONLY
+  if (!only) for (const w of widths) await atWidth(browser, engineName, w, narrow)
+  if (engineName === "chromium") for (const w of gap) await sidebarGap(browser, w)
+  if (engineName === "chromium" && !only) {
     await android(browser)
     await desktopFigure(browser)
   }
