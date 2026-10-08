@@ -222,7 +222,15 @@ test("the fixture on its live branch", async (t) => {
     ])
     assert.deepEqual(m.serves, {
       paths: ["index.md", "chapters", "assets", "glossary.md", "community"],
-      except: ["assets/**/*.md"],
+      except: [
+        "assets/**/*.md",
+        "**/*.docx",
+        "**/*.doc",
+        "**/*.odt",
+        "**/*.pages",
+        "**/*.rtf",
+        "**/*.pages/**",
+      ],
     })
     assert.equal(m.slug, "design-fixture")
     assert.equal(m.branch, "main")

@@ -271,7 +271,22 @@ test("everything at the repo root outside the allowlist is ignored, whole", () =
     "textbook.config.json",
     "textbook.config.json/**",
     "assets/**/*.md",
+    "**/*.docx",
+    "**/*.doc",
+    "**/*.odt",
+    "**/*.pages",
+    "**/*.rtf",
+    "**/*.pages/**",
   ])
+})
+
+test("Word files in content folders are never served", () => {
+  const ignored = (path) => ignorePatternsFor(["chapters"]).some((g) => matchesGlob(path, g))
+  for (const ext of ["docx", "doc", "odt", "pages", "rtf"])
+    assert.equal(ignored(`chapters/Chapter_01.${ext}`), true, ext)
+  assert.equal(ignored("Chapter_01.docx"), true)
+  assert.equal(ignored("chapters/Book.pages/Index.xml"), true)
+  assert.equal(ignored("chapters/chapter-01.md"), false)
 })
 
 test("markdown under assets/ is ignored, its pictures aren't", () => {
