@@ -7,10 +7,10 @@ There are two ways to help with this book. They differ in **who sees what you
 write**, and in **which account you need**. Both are in the **Contribute** menu at
 the top of every page.
 
-|                         | Who sees it                                                                                                                                           | Account                                                  |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| **Edit this page**      | The authors review it. The proposal is public on the book's GitHub repository, and once it's accepted your GitHub name appears in the page's history. | A free [GitHub account](https://github.com/signup)       |
-| **Note to the authors** | The authors. It becomes a public issue on the book's GitHub repository, showing your name. It doesn't appear on this page.                            | None. You give your name.                                |
+|                         | Who sees it                                                                                                                                           | Account                                            |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Edit this page**      | The authors review it. The proposal is public on the book's GitHub repository, and once it's accepted your GitHub name appears in the page's history. | A free [GitHub account](https://github.com/signup) |
+| **Note to the authors** | The authors. It becomes a public issue on the book's GitHub repository, showing your name. It doesn't appear on this page.                            | None. You give your name.                          |
 
 ---
 

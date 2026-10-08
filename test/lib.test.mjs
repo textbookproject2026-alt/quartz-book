@@ -126,7 +126,10 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
   // No Hypothes.is public layer on books; the book's registered groups, as ids.
   assert.equal(plugin(out, "edition-integrations").options.publicAnnotations, false)
   assert.deepEqual(plugin(out, "edition-integrations").options.hypothesisGroups, [])
-  const classes = { ...findBook(registry, "design-fixture"), annotations: { hypothesis_groups: [{ id: "abcd1234", label: "Class A" }] } }
+  const classes = {
+    ...findBook(registry, "design-fixture"),
+    annotations: { hypothesis_groups: [{ id: "abcd1234", label: "Class A" }] },
+  }
   assert.deepEqual(bookOptions(registry, classes, "main").hypothesisGroups, ["abcd1234"])
   assert.equal(out.configuration.baseUrl, "design-fixture.example.invalid")
   assert.equal(out.configuration.pageTitle, "Design fixture")
