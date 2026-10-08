@@ -44,6 +44,22 @@ export function findBook(registry, slug) {
  * Every per-book value the build uses, from the registry alone. This replaces
  * configure.mjs and templates/publish.js for the site (§0).
  */
+/**
+ * The platform's Plausible dashboard: its shared link (analytics.plausible.shared_link,
+ * pasted once), else the public dashboard when it is public, else "" (no statistics links).
+ */
+export function statsDashboard(registry) {
+  const p = registry.platform?.analytics?.plausible
+  if (!p) return ""
+  return p.shared_link || (p.dashboard_public ? `https://plausible.io/${p.site}` : "")
+}
+
+/** The platform's Privacy page, on the portal. */
+export const privacyUrl = (registry) => {
+  const domain = registry.platform?.portal?.domain
+  return domain ? `https://${domain}/privacy` : ""
+}
+
 export function bookOptions(registry, book, branch, { preview = false } = {}) {
   if (!branch) refuse("no branch given. Say which branch this build is for.")
   const suggestEnabled = book.suggest_edit?.enabled === true
@@ -77,6 +93,13 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     // book: reading history isn't suggesting, so suggest_edit doesn't gate it.
     revisionEndpoint: endpoint ? revisionEndpoint(endpoint, book.slug) : "",
     plausibleScriptSrc: counted ? plausibleSrc : "",
+    // Page and Book statistics (⋯): the platform's dashboard, for the books it counts.
+    statsUrl: counted ? statsDashboard(registry) : "",
+    // registry books[].type: the header badge. Absent means a book.
+    type: book.type ?? "book",
+    // The platform's Privacy page (the portal's /privacy): every footer, and the
+    // first-visit notice.
+    privacyUrl: privacyUrl(registry),
     licence: book.licence,
     authors: book.maintainer?.name ?? "",
     editionTemplateRepo: book.editions?.template_repo ?? null,
@@ -148,11 +171,15 @@ export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
     if (!found) throw new Error(`quartz.config.yaml has no ${name} plugin.`)
     return found
   }
-  plugin("footer").options.links = licenceLink(opts.licence)
+  plugin("footer").options.links = {
+    ...licenceLink(opts.licence),
+    ...(opts.privacyUrl ? { Privacy: opts.privacyUrl } : {}),
+  }
   Object.assign(plugin("edition-integrations").options, {
     plausibleScriptSrc: opts.plausibleScriptSrc,
     siteDomain: opts.domain,
     explorerOrder,
+    privacyUrl: opts.privacyUrl ?? "",
   })
   Object.assign(plugin("edit-on-github").options, {
     repo: opts.repo,
@@ -162,6 +189,9 @@ export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
     revisionEndpoint: opts.revisionEndpoint,
     authors: opts.authors ?? "",
     licence: opts.licence ?? "",
+    statsUrl: opts.statsUrl ?? "",
+    statsHost: opts.statsUrl ? opts.domain : "",
+    type: opts.type ?? "",
     // What each page was built from (the editor says when drafts has moved on).
     sourceCommit: opts.sourceCommit ?? "",
     sourceBlobs: opts.sourceBlobs ?? {},

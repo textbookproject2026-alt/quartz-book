@@ -14,6 +14,8 @@ import {
   SYNC_MESSAGE,
   syncDrafts,
   bookPages,
+  statsDashboard,
+  privacyUrl,
   completeContents,
   contentsOrder,
   pageTitle,
@@ -102,7 +104,20 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
     sourceBlobs: {},
     authors: "Platform",
     licence: "CC-BY-SA-4.0",
+    // The fixture registry has no analytics: no statistics. A book unless it says otherwise.
+    statsUrl: "",
+    statsHost: "",
+    type: "book",
   })
+  // Every footer links the platform's Privacy page, and the first-visit notice does.
+  assert.equal(
+    plugin(out, "footer").options.links.Privacy,
+    "https://portal.example.invalid/privacy",
+  )
+  assert.equal(
+    plugin(out, "edition-integrations").options.privacyUrl,
+    "https://portal.example.invalid/privacy",
+  )
   assert.equal(
     plugin(out, "edition-integrations").options.siteDomain,
     "design-fixture.example.invalid",
@@ -113,6 +128,7 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
   assert.deepEqual(out.configuration.ignorePatterns, ["README.md", "README.md/**"])
   assert.deepEqual(plugin(out, "footer").options.links, {
     "Licence (CC-BY-SA-4.0)": "https://creativecommons.org/licenses/by-sa/4.0/",
+    Privacy: "https://portal.example.invalid/privacy",
   })
   // The shared config itself is untouched.
   assert.equal(plugin(shared, "edit-on-github").options.repo, "")
@@ -874,4 +890,36 @@ test("syncDrafts: a conflict writes nothing and says so; other refusals are erro
     status: 404,
     step: "compare",
   })
+})
+
+test("statistics: the shared link, else the public dashboard, only for a live book", () => {
+  const reg = (plausible) => ({
+    platform: { analytics: { plausible }, portal: { domain: "confused4now.org" } },
+  })
+  const p = {
+    script_src: "https://plausible.io/js/pa-x.js",
+    site: "confused4now.org",
+    dashboard_public: true,
+  }
+  assert.equal(statsDashboard(reg(p)), "https://plausible.io/confused4now.org")
+  assert.equal(
+    statsDashboard(
+      reg({ ...p, shared_link: "https://plausible.io/share/confused4now.org?auth=k" }),
+    ),
+    "https://plausible.io/share/confused4now.org?auth=k",
+  )
+  assert.equal(statsDashboard(reg({ ...p, dashboard_public: false })), "")
+  assert.equal(statsDashboard(reg(null)), "")
+  assert.equal(privacyUrl(reg(p)), "https://confused4now.org/privacy")
+  const registry = JSON.parse(
+    readFileSync(new URL("../fixtures/registry.json", import.meta.url), "utf8"),
+  )
+  const book = registry.books.find((b) => b.status === "live")
+  const opts = bookOptions(registry, book, book.content.live_branch)
+  assert.equal(opts.statsUrl, statsDashboard(registry))
+  assert.equal(opts.type, book.type ?? "book")
+  assert.equal(
+    bookOptions(registry, { ...book, status: "preview" }, book.content.live_branch).statsUrl,
+    "",
+  )
 })
