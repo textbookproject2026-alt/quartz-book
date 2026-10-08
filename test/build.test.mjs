@@ -274,19 +274,27 @@ test("the fixture on its live branch", async (t) => {
     assert.match(html, /href="#ref-bhaskar-1979"/)
   })
 
-  await t.test("every page, the 404 too, starts its left sidebar with the home link", () => {
-    const pages = walkFiles(b.out)
-      .map((p) => relative(b.out, p))
-      .filter((p) => p.endsWith(".html"))
-      // alias-redirects' stubs are a meta refresh, with no layout.
-      .filter((p) => !/<meta http-equiv="refresh"/.test(b.read(p)))
-    assert.ok(pages.includes("404.html") && pages.includes("how-to-comment.html"), pages.join())
-    const link =
-      '<div class="left sidebar"><p class="home-link"><a href="https://confused4now.org/" aria-label="Confused for Now (home)"><svg '
-    for (const p of pages) assert.ok(b.read(p).includes(link), p)
-    // The rest of the sidebar follows it; the book's title is in the header now.
-    assert.doesNotMatch(b.read("chapters/chapter-01.html"), /<h2 class="page-title">/)
-  })
+  await t.test(
+    "every page starts its one bar with the home link: the header row, or the 404's sidebar",
+    () => {
+      const pages = walkFiles(b.out)
+        .map((p) => relative(b.out, p))
+        .filter((p) => p.endsWith(".html"))
+        // alias-redirects' stubs are a meta refresh, with no layout.
+        .filter((p) => !/<meta http-equiv="refresh"/.test(b.read(p)))
+      assert.ok(pages.includes("404.html") && pages.includes("how-to-comment.html"), pages.join())
+      const link =
+        '<p class="home-link"><a href="https://confused4now.org/" aria-label="Confused for Now (home)"><svg '
+      for (const p of pages) {
+        // The "book" frame (extras' edit-on-github) draws the header row; the 404 keeps the default frame.
+        const start =
+          p === "404.html" ? '<div class="left sidebar">' : '<div class="tb-header-slot">'
+        assert.ok(b.read(p).includes(start + link), p)
+      }
+      // The rest of the sidebar follows it; the book's title is in the header now.
+      assert.doesNotMatch(b.read("chapters/chapter-01.html"), /<h2 class="page-title">/)
+    },
+  )
 
   await t.test("the home link's two inline logos: exactly one shows at each width", () => {
     const html = b.read("chapters/chapter-01.html")
