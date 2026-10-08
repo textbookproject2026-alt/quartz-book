@@ -305,8 +305,13 @@ plugins:
       # Paragraph numbers in the margin, with a reader's toggle (every page
       # but the home page; frontmatter `paragraphNumbers: false` opts a page out).
       paragraphNumbers: true
-      # Inert by decision (no Hypothes.is Publisher tier). Leave empty.
+      # No Hypothes.is public layer on books. Readers see and post only in
+      # the anchor group (restricted: anyone reads, members post) and the
+      # book's registered class groups (SET PER BOOK: annotations.hypothesis_groups).
+      # Anchor empty: no Hypothes.is client at all, which keeps Public out too.
+      publicAnnotations: false
       hypothesisGroupId: ""
+      hypothesisGroups: []
 
   # The graph: quartz-community/graph with nodes coloured by topic (frontmatter
   # `topic:`, else the first tag), always-on labels and a topic legend.

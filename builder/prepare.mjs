@@ -83,7 +83,7 @@ try {
   })
   let page = readFileSync(join(BUILDER, "builder/pages/how-to-comment.md"), "utf8")
   if (opts.editionTemplateRepo)
-    page += `\n---\n\n*Course coordinators: briefing notes for students, and the reasoning behind the\nsingle shared public margin, are in [the department edition template's guide](https://github.com/${opts.editionTemplateRepo}/blob/main/docs/for-course-coordinators.md).*\n`
+    page += `\n---\n\n*Course coordinators: briefing notes for students are in [the department edition template's guide](https://github.com/${opts.editionTemplateRepo}/blob/main/docs/for-course-coordinators.md).*\n`
   writeFileSync(join(content, `${HOW_TO_COMMENT}.md`), page)
 
   const shared = YAML.parse(readFileSync(join(BUILDER, "quartz.config.yaml"), "utf8"))
@@ -116,6 +116,13 @@ try {
     ignorePatternsFor(entries),
     order,
   )
+  // CI's layout checks only: the annotation sidebar's layout is still checked on
+  // every width, so they build with a Hypothes.is client (the public layer, as
+  // editions have). A book's real build never sets this.
+  if (process.env.TB_LAYOUT_ANNOTATIONS === "public") {
+    const ei = rendered.plugins.find((p) => p.source?.name === "edition-integrations")
+    if (ei) ei.options.publicAnnotations = true
+  }
   writeFileSync(join(workDir, "quartz.config.yaml"), YAML.stringify(rendered))
 
   const builderDirty = git(BUILDER, "status", "--porcelain", "--untracked-files=no") !== ""

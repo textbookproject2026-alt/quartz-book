@@ -88,6 +88,10 @@ jobs:
           "https://github.com/$REPO.git" "$RUNNER_TEMP/live-book"
 
       - name: Build it
+        # With a Hypothes.is client, so the sidebar layout is still checked
+        # (builder/prepare.mjs); books themselves have no public layer.
+        env:
+          TB_LAYOUT_ANNOTATIONS: public
         run: ./build-book.sh "$RUNNER_TEMP/live-book" --branch "${{ steps.book.outputs.branch }}" --out "$RUNNER_TEMP/live-book-site"
 
       - name: Check the build
