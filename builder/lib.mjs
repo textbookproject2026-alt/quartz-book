@@ -183,6 +183,88 @@ export function parseLsTree(out) {
 }
 
 /**
+ * index.md with every published page in its Contents (decision of 8 Oct 2026:
+ * the explorer and the Contents always match). `pages` is [{ path, title }],
+ * repo paths of the pages the explorer shows (bookPages()). Each one no item
+ * links to is added at the end of the list, as `[[target|title]]` in the list's
+ * own marker (the next number for a numbered list). With no "## Contents"
+ * heading and something to add, the heading goes at the end of the page.
+ * Returns { text, added: [paths] }; text is unchanged when nothing is missing.
+ */
+export function completeContents(indexMarkdown, pages) {
+  const listed = new Set(contentsOrder(indexMarkdown))
+  const missing = pages.filter((p) => !listed.has(pageSlug(p.path)))
+  if (!missing.length) return { text: indexMarkdown, added: [] }
+  const eol = indexMarkdown.includes("\r\n") ? "\r\n" : "\n"
+  const lines = indexMarkdown.split(/\r?\n/)
+  let start = lines.findIndex((l) => /^##\s+Contents\s*$/i.test(l))
+  if (start === -1) {
+    while (lines.length && !lines.at(-1).trim()) lines.pop()
+    lines.push(...(lines.length ? [""] : []), "## Contents", "")
+    start = lines.length - 2
+  }
+  let end = lines.findIndex((l, i) => i > start && /^#{1,6}\s/.test(l))
+  if (end === -1) end = lines.length
+  const ITEM = /^(\s*)(?:([-*+])|(\d+)([.)]))\s/
+  // After the last item and the lines indented under it.
+  let last = -1
+  for (let i = start + 1; i < end; i++) if (ITEM.test(lines[i])) last = i
+  let at = last
+  if (last !== -1) while (at + 1 < end && /^\s+\S/.test(lines[at + 1])) at++
+  const m = last === -1 ? null : ITEM.exec(lines[last])
+  let n = m?.[3] ? Number(m[3]) : 0
+  const marker = () => (m?.[3] ? `${++n}${m[4]}` : (m?.[2] ?? "-"))
+  const label = (t) => t.replace(/\s+/g, " ").trim().replace(/\|/g, "-").replace(/\]\]/g, "] ]")
+  const items = missing.map(
+    (p) => `${m?.[1] ?? ""}${marker()} [[${p.path.replace(/\.md$/i, "")}|${label(p.title)}]]`,
+  )
+  if (last === -1)
+    lines.splice(
+      start + 1,
+      0,
+      "",
+      ...items,
+      ...(start + 1 < lines.length && lines[start + 1].trim() ? [""] : []),
+    )
+  else lines.splice(at + 1, 0, ...items)
+  return { text: lines.join(eol), added: missing.map((p) => p.path) }
+}
+
+/**
+ * completeContents for a book checkout: `files` is its tracked files (git ls-files)
+ * and `read(path)` a file's text. The builder's prepare step and the live-book
+ * check both use it, so they agree on the order.
+ */
+export const bookContents = (indexMarkdown, files, read) =>
+  completeContents(
+    indexMarkdown,
+    bookPages(files).map((path) => ({ path, title: pageTitle(read(path), path) })),
+  )
+
+/** A repo path as contentsOrder's slug: "chapters/Definitions/A b.md" -> "chapters/definitions/a-b". */
+const pageSlug = (path) => path.replace(/\.md$/i, "").replace(/\s+/g, "-").toLowerCase()
+
+/**
+ * The pages the explorer shows from a book's files (repo paths, "/"-separated):
+ * every .md under the allowlist but index.md files (the front page, a folder's
+ * own page) and asset notes. The builder's how-to-comment page isn't the book's.
+ */
+export const bookPages = (paths) =>
+  paths
+    .filter((p) => /\.md$/i.test(p) && !/(^|\/)index\.md$/i.test(p) && !p.startsWith("assets/"))
+    .filter((p) => ALLOWLIST.some((a) => p === a || p.startsWith(`${a}/`)))
+    .sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }))
+
+/** A page's title as Quartz shows it: front matter `title:`, else its first "# " heading, else its file name. */
+export function pageTitle(markdown, path) {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown)
+  const t = fm && /^title:\s*(.+?)\s*$/m.exec(fm[1])
+  if (t) return t[1].replace(/^(["'])(.*)\1$/, "$2")
+  const h = /^#\s+(.+?)\s*#*\s*$/m.exec(fm ? markdown.slice(fm[0].length) : markdown)
+  return h ? h[1] : path.split("/").pop().replace(/\.md$/i, "")
+}
+
+/**
  * The book's reading order: the link targets, in order, of the list under
  * "## Contents" in its index.md (up to the next heading), as Quartz slugs, for
  * edition-integrations' explorerOrder. Each list item's first link counts:

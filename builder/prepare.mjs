@@ -22,6 +22,7 @@ import {
   HOW_TO_COMMENT,
   REGISTRY_URL,
   bookOptions,
+  bookContents,
   contentsOrder,
   findBook,
   howToCommentClash,
@@ -86,8 +87,26 @@ try {
   writeFileSync(join(content, `${HOW_TO_COMMENT}.md`), page)
 
   const shared = YAML.parse(readFileSync(join(BUILDER, "quartz.config.yaml"), "utf8"))
+  // The Contents lists every page the explorer shows: any it misses is added at
+  // its end in the copy Quartz reads (completeContents), so the front page and
+  // the explorer, which follows the Contents, always show the same pages.
   const indexFile = join(book, "index.md")
-  const order = contentsOrder(existsSync(indexFile) ? readFileSync(indexFile, "utf8") : "")
+  let indexText = existsSync(indexFile) ? readFileSync(indexFile, "utf8") : ""
+  if (indexText) {
+    const completed = bookContents(
+      indexText,
+      git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0"),
+      (path) => readFileSync(join(book, path), "utf8"),
+    )
+    if (completed.added.length) {
+      indexText = completed.text
+      writeFileSync(join(content, "index.md"), indexText)
+      console.log(
+        `prepare: added to the Contents, not in index.md's: ${completed.added.join(", ")}`,
+      )
+    }
+  }
+  const order = contentsOrder(indexText)
   // The commit, and each published file's blob, the pages are built from.
   const bookCommit = git(book, "rev-parse", "HEAD")
   const sourceBlobs = parseLsTree(git(book, "ls-tree", "-r", "-z", "HEAD", "--", ...ALLOWLIST))
