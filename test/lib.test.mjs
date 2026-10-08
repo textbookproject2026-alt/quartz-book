@@ -13,7 +13,10 @@ import {
   ownerTokens,
   SYNC_MESSAGE,
   syncDrafts,
+  bookPages,
+  completeContents,
   contentsOrder,
+  pageTitle,
   branchAlias,
   findBook,
   howToCommentClash,
@@ -331,6 +334,72 @@ test("contentsOrder: the Contents list's link targets, as slugs, in order", () =
 test("contentsOrder: no Contents heading, or no index.md, gives []", () => {
   assert.deepEqual(contentsOrder("# A book\n\n- [[chapters/chapter-01]]\n"), [])
   assert.deepEqual(contentsOrder(""), [])
+})
+
+test("completeContents: pages missing from the Contents go at its end, in the list's own style", () => {
+  const index = [
+    "# A book",
+    "",
+    "## Contents",
+    "",
+    "1. **[[chapters/introduction|Introduction]]**",
+    "2. **[[chapters/chapter-01|Chapter 1]]**",
+    "   What it does.",
+    "",
+    "## Afterword",
+  ].join("\n")
+  const pages = [
+    { path: "chapters/Definitions/Critical realism.md", title: "Critical realism" },
+    { path: "chapters/chapter-01.md", title: "Chapter 1" },
+    { path: "chapters/introduction.md", title: "Introduction" },
+    { path: "glossary.md", title: "Glossary | terms" },
+  ]
+  const { text, added } = completeContents(index, pages)
+  assert.deepEqual(added, ["chapters/Definitions/Critical realism.md", "glossary.md"])
+  assert.equal(
+    text,
+    [
+      "# A book",
+      "",
+      "## Contents",
+      "",
+      "1. **[[chapters/introduction|Introduction]]**",
+      "2. **[[chapters/chapter-01|Chapter 1]]**",
+      "   What it does.",
+      "3. [[chapters/Definitions/Critical realism|Critical realism]]",
+      "4. [[glossary|Glossary - terms]]",
+      "",
+      "## Afterword",
+    ].join("\n"),
+  )
+  assert.deepEqual(contentsOrder(text), [
+    "chapters/introduction",
+    "chapters/chapter-01",
+    "chapters/definitions/critical-realism",
+    "glossary",
+  ])
+  // Nothing missing: the text as it was.
+  assert.deepEqual(completeContents(text, pages), { text, added: [] })
+})
+
+test("completeContents: no Contents heading gets one at the end; bullets stay bullets", () => {
+  const { text } = completeContents("# T\n\n## Chapters\n\n1. [[chapter-01|x]]\n", [{ path: "chapters/chapter-01.md", title: "One" }])
+  assert.equal(text, "# T\n\n## Chapters\n\n1. [[chapter-01|x]]\n\n## Contents\n\n- [[chapters/chapter-01|One]]\n")
+  const bullets = completeContents("## Contents\n\n- [[a|A]]\n", [{ path: "b.md", title: "B" }]).text
+  assert.equal(bullets, "## Contents\n\n- [[a|A]]\n- [[b|B]]\n")
+})
+
+test("bookPages: the explorer's pages, not index.md files, asset notes or files outside the allowlist", () => {
+  assert.deepEqual(
+    bookPages(["index.md", "chapters/chapter-10.md", "chapters/chapter-2.md", "chapters/Definitions/index.md", "glossary.md", "assets/a/notes.md", "README.md", "docs/x.md", "chapters/x.docx", ""]),
+    ["chapters/chapter-2.md", "chapters/chapter-10.md", "glossary.md"],
+  )
+})
+
+test("pageTitle: front matter title, else the first heading, else the file name", () => {
+  assert.equal(pageTitle('---\ntitle: "Chapter 2: Methods"\n---\n\n# Other\n', "c.md"), "Chapter 2: Methods")
+  assert.equal(pageTitle("---\n#title: x\n---\n\n# Chapter 1\n", "c.md"), "Chapter 1")
+  assert.equal(pageTitle("Just text.\n", "chapters/chapter-04.md"), "chapter-04")
 })
 
 test("a book's own how-to-comment clashes with the builder's page", () => {

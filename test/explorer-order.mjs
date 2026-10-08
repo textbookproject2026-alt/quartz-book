@@ -9,6 +9,9 @@
 // chapters first, in order, so the folder's first page link is the first
 // Contents entry under chapters/. It then opens /chapters/ and asserts the
 // same of the folder page's listing (builder/lib.mjs, orderFolderListing).
+// Last, on the front page: every page the explorer shows (but the builder's
+// how-to-comment) is in the rendered Contents, and in the same order
+// (completeContents adds any index.md's own list misses, decision of 8 Oct).
 // Browser: `npx playwright install chromium` (CI), or set
 // PW_CHROMIUM_CHANNEL=chrome to use an installed Chrome.
 import assert from "node:assert/strict"
@@ -52,6 +55,29 @@ try {
   console.log(`folder page's chapters: ${items.join(", ")}`)
   assert.deepEqual(items.slice(0, chapters.length), chapters)
   console.log(`pass  /chapters/ lists ${chapters.length} chapters in Contents order`)
+
+  await page.goto(base, { waitUntil: "load" })
+  await page.waitForSelector(".explorer-ul a", { state: "attached" })
+  const path = (as) => as.map((a) => decodeURIComponent(new URL(a.href).pathname).replace(/^\//, "").replace(/\.html$/, ""))
+  // Every page link is in the explorer's markup, folded folders included; folder links end in "/".
+  const explorer = (await page.$$eval(".explorer-ul li > a", path)).filter((p) => p !== "how-to-comment" && !p.endsWith("/"))
+  // Each item's first link, from the lists between the Contents heading and the next heading.
+  const contents = path(
+    await page.evaluate(() => {
+      const links = []
+      const h = document.querySelector("article h2#contents")
+      for (let el = h?.nextElementSibling; el && !/^H[1-6]$/.test(el.tagName); el = el.nextElementSibling)
+        for (const li of el.matches("ol, ul") ? el.children : []) {
+          const a = li.querySelector("a.internal")
+          if (a) links.push({ href: a.href })
+        }
+      return links
+    }),
+  )
+  console.log(`explorer: ${explorer.join(", ")}\ncontents: ${contents.join(", ")}`)
+  assert.deepEqual(explorer, contents.filter((p) => explorer.includes(p)), "the explorer and the Contents differ in order")
+  assert.deepEqual([...explorer].sort(), [...new Set(contents)].sort(), "the explorer and the Contents list different pages")
+  console.log(`pass  the explorer's ${explorer.length} pages are the Contents', in its order`)
 } finally {
   await browser.close()
 }
