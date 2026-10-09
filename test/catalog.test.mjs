@@ -10,7 +10,17 @@ import {
   CATALOG_PATH,
   GIT_LOG_FORMAT,
   authorsOf,
+  bookMetadata,
   buildCatalog,
+  cslItem,
+  cslName,
+  headTags,
+  jsonLd,
+  creatorsOf,
+  cutAtWord,
+  dateOnly,
+  firstParagraph,
+  pageMetadata,
   isConceptPage,
   normaliseTag,
   outputAllowed,
@@ -114,6 +124,279 @@ test("book authors fall back to the pages' own", () => {
     ],
   })
   assert.deepEqual(catalog.authors, ["A", "B"])
+})
+
+// --- Citation metadata (bookMetadata, pageMetadata) ---------------------------
+
+const bookFacts = {
+  slug: "fixture",
+  bookCommit: "c".repeat(40),
+  bookCommitDate: "2026-10-08T14:03:00+02:00",
+  title: "Registry title",
+  domain: "fixture.example.org",
+  licence: "CC-BY-4.0",
+  authors: "Brandon Sommer, Caroline Laschkolnig",
+  type: "paper",
+  summary: "The registry's summary.",
+  publisher: "",
+  lang: "",
+  doi: "",
+}
+
+test("creators: names or { name, orcid }, ORCID bare or as a URL, a bad iD dropped", () => {
+  assert.deepEqual(
+    creatorsOf({
+      authors: [
+        "A. Author",
+        { name: "B. Author", orcid: "https://orcid.org/0000-0002-1825-009x" },
+        { name: "C. Author", orcid: "not an id" },
+        { orcid: "0000-0002-1825-0097" },
+      ],
+    }),
+    [
+      { name: "A. Author" },
+      { name: "B. Author", orcid: "0000-0002-1825-009X" },
+      { name: "C. Author" },
+    ],
+  )
+  assert.deepEqual(authorsOf({ authors: [{ name: "B", orcid: "0000-0002-1825-0097" }, "C"] }), [
+    "B",
+    "C",
+  ])
+})
+
+test("dates: YAML dates, ISO strings and git's dates to YYYY-MM-DD; anything else is empty", () => {
+  assert.equal(dateOnly(new Date("2026-03-01T00:00:00Z")), "2026-03-01")
+  assert.equal(dateOnly("2026-10-08T23:30:00-05:00"), "2026-10-08")
+  assert.equal(dateOnly("2026-02-30"), "")
+  assert.equal(dateOnly("March 2026"), "")
+  assert.equal(dateOnly(undefined), "")
+})
+
+test("summary: the first prose paragraph, as plain text, cut at a word under 300", () => {
+  const md = [
+    "# Chapter 3: Reality",
+    "",
+    "## Introduction[^1]",
+    "",
+    "> a quote",
+    "",
+    '<img src="../assets/x.png" alt="x" />',
+    "",
+    "- a list",
+    "",
+    "%% a comment %%",
+    "",
+    "The **Empirical** domain, as [[Definitions/Critical realism|critical realism]] puts it,",
+    "is what we [observe](https://example.org)[^2] and [[Emergence]].",
+  ].join("\n")
+  assert.equal(
+    firstParagraph(md),
+    "The Empirical domain, as critical realism puts it, is what we observe and Emergence.",
+  )
+  assert.equal(firstParagraph("# Only a title\n"), "")
+  const long = "word ".repeat(100).trim()
+  const cut = cutAtWord(long)
+  assert.ok(cut.length <= 300 && cut.endsWith("word…"), cut)
+  assert.equal(cutAtWord("short"), "short")
+})
+
+test("book metadata: index.md first, then the registry, then the platform", () => {
+  const index = page("index.md", "index", {
+    frontmatter: {
+      authors: ["Brandon Sommer"],
+      tags: ["Ontology", "concept"],
+      keywords: "realism, ontology",
+    },
+  })
+  index.markdown = "# Ontology for Social Research\n\nFirst paragraph.\n"
+  index.created = "2026-09-20T10:00:00+02:00"
+  const book = bookMetadata(bookFacts, index)
+  assert.deepEqual(book, {
+    type: "paper",
+    title: "Ontology for Social Research",
+    creators: [{ name: "Brandon Sommer" }],
+    publisher: "Confused for Now",
+    created: "2026-09-20",
+    published: "2026-10-08",
+    summary: "The registry's summary.",
+    keywords: ["realism", "ontology"],
+    url: "https://fixture.example.org/",
+    lang: "en",
+    format: "text/html",
+    rights: "open access",
+    licence: { id: "CC-BY-4.0", url: "https://creativecommons.org/licenses/by/4.0/" },
+  })
+  // No index.md at all: the registry's title and maintainer, CC BY-SA, no doi.
+  const bare = bookMetadata(
+    { ...bookFacts, licence: "", type: "", publisher: "Press", lang: "de", doi: "10.1/x" },
+    undefined,
+  )
+  assert.equal(bare.title, "Registry title")
+  assert.deepEqual(bare.creators, [{ name: "Brandon Sommer" }, { name: "Caroline Laschkolnig" }])
+  assert.equal(bare.type, "book")
+  assert.equal(bare.publisher, "Press")
+  assert.equal(bare.lang, "de")
+  assert.equal(bare.doi, "10.1/x")
+  assert.equal(bare.licence.id, "CC-BY-SA-4.0")
+  assert.equal(bare.created, "")
+  // index.md's own summary, description and dates win.
+  const own = bookMetadata(bookFacts, {
+    ...index,
+    frontmatter: {
+      description: "Own *summary*.",
+      created: "2025-01-02",
+      published: "2025-02-03",
+      resource_type: "report",
+    },
+  })
+  assert.equal(own.summary, "Own summary.")
+  assert.equal(own.created, "2025-01-02")
+  assert.equal(own.published, "2025-02-03")
+  assert.equal(own.type, "report")
+  assert.ok(!("doi" in own))
+})
+
+test("page metadata: the page's own, else its book's; chapter, concept or as given", () => {
+  const book = bookMetadata(bookFacts, undefined)
+  const ch = page("chapters/chapter-03.md", "chapters/chapter-03", {
+    title: "Chapter 3: Reality",
+    frontmatter: { tags: ["ontology"], lang: "en-GB", doi: "10.5/ch3" },
+  })
+  ch.markdown = "# Chapter 3: Reality\n\nIt begins here.\n"
+  ch.created = "2026-09-21T09:00:00Z"
+  const m = pageMetadata(ch, book, bookFacts)
+  assert.equal(m.type, "chapter")
+  assert.equal(m.title, "Chapter 3: Reality")
+  assert.deepEqual(m.creators, book.creators)
+  assert.equal(m.created, "2026-09-21")
+  assert.equal(m.published, "2026-10-08")
+  assert.equal(m.summary, "It begins here.")
+  assert.deepEqual(m.keywords, ["ontology"])
+  assert.equal(m.url, "https://fixture.example.org/chapters/chapter-03")
+  assert.equal(m.lang, "en-GB")
+  assert.equal(m.doi, "10.5/ch3")
+  assert.deepEqual(m.book, { title: "Registry title", url: "https://fixture.example.org/" })
+  const concept = page("chapters/Definitions/Emergence.md", "chapters/Definitions/Emergence", {
+    frontmatter: { author: { name: "E", orcid: "0000-0002-1825-0097" } },
+  })
+  const c = pageMetadata(concept, book, bookFacts)
+  assert.equal(c.type, "concept")
+  assert.deepEqual(c.creators, [{ name: "E", orcid: "0000-0002-1825-0097" }])
+  assert.equal(
+    pageMetadata({ ...concept, frontmatter: { resource_type: "article" } }, book, bookFacts).type,
+    "article",
+  )
+  assert.equal(
+    pageMetadata({ ...concept, frontmatter: { resource_type: "poem" } }, book, bookFacts).type,
+    "concept",
+  )
+})
+
+test("the catalog carries the metadata when the build gives the registry facts, and stays deterministic", () => {
+  const pages = [page("index.md", "index"), page("chapters/a.md", "chapters/a", { title: "A" })]
+  assert.ok(!("metadata" in buildCatalog({ facts, pages })))
+  const one = buildCatalog({ facts: bookFacts, pages })
+  assert.equal(one.metadata.title, "Registry title")
+  assert.equal(one.pages.find((p) => p.path === "/chapters/a").metadata.type, "chapter")
+  assert.deepEqual(one, buildCatalog({ facts: bookFacts, pages }))
+})
+
+test("head tags: Highwire, Dublin Core and JSON-LD, escaped, optional fields only when set", () => {
+  const book = bookMetadata({ ...bookFacts, type: "book" }, undefined)
+  const ch = page("chapters/c.md", "chapters/c", {
+    title: 'Quotes "and" <tags> & more',
+    frontmatter: { authors: [{ name: "E", orcid: "0000-0002-1825-0097" }], keywords: ["a", "b"] },
+  })
+  ch.markdown = "Body </script><script>alert(1)</script>"
+  const tags = headTags(pageMetadata(ch, book, bookFacts), { pdfUrl: "https://x/c.pdf" })
+  assert.ok(
+    tags.includes(
+      '<meta name="citation_title" content="Quotes &quot;and&quot; &lt;tags&gt; &amp; more">',
+    ),
+  )
+  assert.ok(
+    tags.includes(
+      '<meta name="citation_author_orcid" content="https://orcid.org/0000-0002-1825-0097">',
+    ),
+  )
+  assert.ok(tags.includes('<meta name="citation_publication_date" content="2026/10/08">'))
+  assert.ok(tags.includes('<meta name="citation_book_title" content="Registry title">'))
+  assert.ok(tags.includes('<meta name="citation_keywords" content="a; b">'))
+  assert.ok(tags.includes('<meta name="citation_pdf_url" content="https://x/c.pdf">'))
+  assert.ok(
+    tags.includes('<meta name="DC.subject" content="a"><meta name="DC.subject" content="b">'),
+  )
+  assert.ok(
+    tags.includes('<link rel="license" href="https://creativecommons.org/licenses/by/4.0/">'),
+  )
+  assert.ok(!tags.includes("citation_doi"))
+  // Nothing in the JSON-LD can close its <script>.
+  assert.equal(tags.match(/<\/script>/g).length, 1)
+  const front = headTags(book)
+  assert.ok(
+    !front.includes("citation_book_title") &&
+      front.includes('<meta name="DC.type" content="book">'),
+  )
+  const report = headTags(bookMetadata({ ...bookFacts, type: "report", doi: "10.1/x" }, undefined))
+  assert.ok(
+    report.includes(
+      '<meta name="citation_technical_report_institution" content="Confused for Now">',
+    ),
+  )
+  assert.ok(report.includes('<meta name="citation_doi" content="10.1/x">'))
+})
+
+test("JSON-LD: Book (or its kind) on the front page, Chapter in the Book, DefinedTerm for a concept", () => {
+  const book = bookMetadata({ ...bookFacts, type: "book" }, undefined)
+  assert.equal(jsonLd(book)["@type"], "Book")
+  assert.equal(jsonLd(bookMetadata(bookFacts, undefined))["@type"], "ScholarlyArticle")
+  const ch = jsonLd(
+    pageMetadata(
+      page("chapters/c.md", "chapters/c", {
+        title: "C",
+        frontmatter: { author: { name: "E", orcid: "0000-0002-1825-0097" } },
+      }),
+      book,
+      bookFacts,
+    ),
+  )
+  assert.equal(ch["@type"], "Chapter")
+  assert.deepEqual(ch.isPartOf, {
+    "@type": "Book",
+    name: "Registry title",
+    url: "https://fixture.example.org/",
+  })
+  assert.deepEqual(ch.author, [
+    { "@type": "Person", name: "E", sameAs: "https://orcid.org/0000-0002-1825-0097" },
+  ])
+  assert.equal(ch.isAccessibleForFree, true)
+  assert.equal(ch.license, "https://creativecommons.org/licenses/by/4.0/")
+  const term = jsonLd(
+    pageMetadata(
+      page("chapters/Definitions/E.md", "chapters/Definitions/E", { title: "E" }),
+      book,
+      bookFacts,
+    ),
+  )
+  assert.equal(term["@type"], "DefinedTerm")
+  assert.equal(term.inDefinedTermSet.name, "Registry title")
+})
+
+test("CSL-JSON: names split at the last word unless inverted; a chapter of its book", () => {
+  assert.deepEqual(cslName("Brandon Sommer"), { family: "Sommer", given: "Brandon" })
+  assert.deepEqual(cslName("van Beethoven, Ludwig"), { family: "van Beethoven", given: "Ludwig" })
+  assert.deepEqual(cslName("UNESCO"), { literal: "UNESCO" })
+  const book = bookMetadata({ ...bookFacts, type: "book" }, undefined)
+  const item = cslItem(
+    pageMetadata(page("chapters/c.md", "chapters/c", { title: "C" }), book, bookFacts),
+  )
+  assert.equal(item.type, "chapter")
+  assert.equal(item["container-title"], "Registry title")
+  assert.deepEqual(item.issued, { "date-parts": [[2026, 10, 8]] })
+  assert.equal(item.id, "https://fixture.example.org/chapters/c")
+  assert.equal(cslItem(book).type, "book")
+  assert.equal(cslItem(bookMetadata(bookFacts, undefined)).type, "article")
 })
 
 // A real repository, so the git log parsing is tested against git itself.
