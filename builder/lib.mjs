@@ -2216,7 +2216,7 @@ export function roleOf(rev, { creators = [], editors = [] } = {}) {
  * title, people: { creators, editors } } }. `releases`: [{ tag, date, commit }].
  */
 export function historyData({ files, pages, releases }) {
-  const entry = (people) => (r) => {
+  const entry = (people, source) => (r) => {
     const { summary, pr } = historySummary(r.message, r.body)
     return {
       sha: r.sha,
@@ -2225,6 +2225,8 @@ export function historyData({ files, pages, releases }) {
       role: roleOf(r, people),
       summary,
       ...(pr ? { pr } : {}),
+      // The page's path in that commit, where it has moved since (page-revision needs it).
+      ...(r.path && r.path !== source ? { path: r.path } : {}),
     }
   }
   return {
@@ -2242,8 +2244,8 @@ export function historyData({ files, pages, releases }) {
           path: p.url,
           source: path,
           title: p.title,
-          published: f.published.map(entry(p.people)),
-          drafts: f.drafts.map(entry(p.people)),
+          published: f.published.map(entry(p.people, path)),
+          drafts: f.drafts.map(entry(p.people, path)),
           releases: f.releases,
         }
       }),
