@@ -976,6 +976,9 @@ test("tableLayout: text tables of up to four columns stack with labels; wide or 
     tableLayout(table(["Who", "Note"], [["A &amp; B", 'Says "hi"']])).replace(/\n/g, ""),
     /data-label="Who">A &amp; B/,
   )
+  // A web address as the text stays breakable: never one unbreakable run.
+  const long = `<a href="x" class="external">social-research-methods.confused4now.org${icon}</a>`
+  assert.equal(tableLayout(long), long)
   // A two-word link keeps its first word free to wrap.
   assert.match(
     tableLayout(`<a href="x" class="external">the author site${icon}</a>`),
