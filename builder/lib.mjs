@@ -586,6 +586,7 @@ export const HISTORY_DIR = ".well-known/history"
  */
 export function outputAllowed(outPath) {
   if (BUILDER_GENERATED.includes(outPath)) return true
+  if (EXPORT_FILE.test(outPath)) return true
   if (outPath.startsWith(`${HISTORY_DIR}/`) && outPath.endsWith(".json")) return true
   if (QUARTZ_GENERATED.some((re) => re.test(outPath))) return true
   // A page's social preview image goes with its page.
@@ -1494,4 +1495,327 @@ export async function syncDrafts({ repo, live_branch: live, drafts_branch: draft
   if (m.status === 204) return { outcome: "current" }
   if (m.status === 409) return { outcome: "conflict" }
   return { outcome: "error", status: m.status, step: "merge" }
+}
+
+// ---------------------------------------------------------------------------
+// Exports (builder/export.mjs): a PDF and an EPUB of each chapter, and a PDF,
+// an EPUB and an ODT of the whole book, made after the site from the same
+// sources: markdown -> (preprocessed here) -> pandoc -> Typst for the PDF,
+// pandoc itself for EPUB and ODT. An export that fails is left out, never the
+// site.
+
+export const EXPORT_DIR = "downloads"
+export const EXPORT_FORMATS = { chapter: ["pdf", "epub"], book: ["pdf", "epub", "odt"] }
+/** What the exports may publish: downloads/<name>.<pdf|epub|odt>. */
+const EXPORT_FILE = /^downloads\/[a-z0-9][a-z0-9-]*\.(pdf|epub|odt)$/
+/** Cloudflare Pages takes files up to 25 MiB; an export over this is dropped. */
+export const EXPORT_MAX_BYTES = 20 * 1024 * 1024
+
+/** A file name part: lower case, ASCII letters, digits and single hyphens. */
+export const fileSlug = (s) =>
+  String(s)
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+
+/**
+ * The export's file name: <book>[-<chapter>]-<YYYY-MM-DD>.<ext>, or without
+ * the date for the stable alias (a redirect to the dated file).
+ */
+export const exportName = (book, chapter, date, ext, dated = true) =>
+  `${[fileSlug(book), chapter ? fileSlug(chapter) : "", dated ? date : ""].filter(Boolean).join("-")}.${ext}`
+
+/**
+ * Each exported page's file part: its file name, or its whole path where two
+ * pages share a file name.
+ */
+export function chapterSlugs(slugs) {
+  const last = (s) => s.split("/").pop()
+  const count = new Map()
+  for (const s of slugs) count.set(fileSlug(last(s)), (count.get(fileSlug(last(s))) ?? 0) + 1)
+  return new Map(
+    slugs.map((s) => [s, count.get(fileSlug(last(s))) > 1 ? fileSlug(s) : fileSlug(last(s))]),
+  )
+}
+
+/** A heading's anchor as Quartz writes it (github-slugger's rule). */
+export const headingAnchor = (heading) =>
+  heading
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, "")
+    .replace(/\s/g, "-")
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|svg|webp|avif|bmp)$/i
+
+const normPath = (path) => {
+  const out = []
+  for (const seg of path.split("/")) {
+    if (seg === "" || seg === ".") continue
+    if (seg === "..") out.pop()
+    else out.push(seg)
+  }
+  return out.join("/")
+}
+
+/**
+ * A book's pages for link resolution: Obsidian's "shortest" links (a file name
+ * alone where it is unique, else a path from the root), as Quartz resolves
+ * them. `pages` are { relPath, slug }.
+ */
+export function linkResolver(pages, domain) {
+  // Spaces and hyphens alike, in any case: Quartz's slugs, from file names with spaces.
+  const norm = (s) =>
+    s
+      .trim()
+      .replace(/^\.?\//, "")
+      .replace(/\.md$/i, "")
+      .replace(/\s+/g, "-")
+      .toLowerCase()
+  const byPath = new Map()
+  const byName = new Map()
+  for (const p of pages) {
+    const key = norm(p.relPath)
+    byPath.set(key, p)
+    const name = key.split("/").pop()
+    byName.set(name, byName.has(name) ? null : p)
+  }
+  return (target) => {
+    const key = norm(target)
+    const page = byPath.get(key) ?? byName.get(key.split("/").pop()) ?? null
+    return page ? { ...page, url: canonicalHref(domain, slugUrl(page.slug)) } : null
+  }
+}
+
+/**
+ * A page's markdown (no frontmatter) as pandoc should read it. What Quartz
+ * renders and pandoc doesn't:
+ * - `%%comments%%` go;
+ * - callouts (`> [!note] Title`) become block quotes headed by their title;
+ * - embeds: `![[image.png]]` an image, `![[Page]]` or `![[Page#Heading]]` that
+ *   page's text (two levels deep at most), unresolved ones a link;
+ * - wikilinks and concept links (`[[Page|label]]`, `[[glossary#Term|term]]`)
+ *   their text, linked to the page on the book's site;
+ * - images (markdown or the converter's `<img>`) a path from the book's root,
+ *   with an `<img>`'s width kept; remote images a link (Typst can't fetch them).
+ *
+ * ctx: { relPath (the page's), resolve (linkResolver), source (relPath -> its
+ * markdown without frontmatter, or null), findFile (a file name -> its path
+ * from the root, or null), depth }
+ */
+export function preprocessMarkdown(markdown, ctx) {
+  const dir = ctx.relPath.split("/").slice(0, -1).join("/")
+  const depth = ctx.depth ?? 0
+  const fromRoot = (src) => {
+    const path = decodeURI(src.split(/[?#]/)[0])
+    return src.startsWith("/") ? normPath(path) : normPath(`${dir}/${path}`)
+  }
+  // A root-absolute path ("/assets/…") while preprocessing, so no pass resolves
+  // it twice; the leading "/" goes at the end, for pandoc and Typst's --root.
+  const image = (alt, src, attrs = "") =>
+    /^[a-z]+:/i.test(src) ? `[${alt || src}](${src})` : `![${alt}](</${fromRoot(src)}>)${attrs}`
+  const link = (target, label) => {
+    const [page, heading] = target.split("#")
+    const text = label ?? (page.trim() ? page.split("/").pop() : heading)
+    // A heading on this page ([[#…]]) is just its text in an export.
+    const found = page.trim() ? ctx.resolve(page) : null
+    return found ? `[${text}](${found.url}${heading ? `#${headingAnchor(heading)}` : ""})` : text
+  }
+
+  let text = markdown.replace(/%%[^]*?%%/g, "")
+
+  // Callouts: the marker line becomes the quote's bold title.
+  text = text.replace(
+    /^([ \t]*>[ \t]*)\[!([\w-]+)\][+-]?[ \t]*(.*)$/gm,
+    (_, quote, kind, title) => {
+      const head = title.trim() || kind.charAt(0).toUpperCase() + kind.slice(1).toLowerCase()
+      return `${quote}**${head}**\n${quote.trimEnd()}`
+    },
+  )
+
+  // Embeds before links: ![[...]] is a wikilink after a "!".
+  text = text.replace(/!\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, (all, target, label) => {
+    const name = target.split("#")[0].trim()
+    if (IMAGE_EXT.test(name)) {
+      const path = ctx.findFile(name)
+      const width = /^\d+$/.test(label ?? "") ? `{width=${label}px}` : ""
+      return path ? `![](</${path}>)${width}` : name
+    }
+    const page = ctx.resolve(name)
+    const body = page && depth < 2 ? ctx.source(page.relPath) : null
+    if (body == null) return link(target, label)
+    const heading = target.split("#")[1]
+    const section = heading ? sectionOf(body, heading) : body.replace(/^#\s+.*$/m, "")
+    return `\n\n${preprocessMarkdown(section, { ...ctx, relPath: page.relPath, depth: depth + 1 }).trim()}\n\n`
+  })
+
+  text = text.replace(/\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]/g, (_, target, label) =>
+    link(target, label),
+  )
+
+  // Markdown images: a path from the root, in <> so spaces survive.
+  text = text.replace(
+    /!\[([^\]]*)\]\((?:<([^>]+)>|([^)\s]+))(?:\s+"[^"]*")?\)/g,
+    (all, alt, a, b) => image(alt, a ?? b),
+  )
+  // The converter's <img>: alt and width kept, the rest of its style dropped.
+  text = text.replace(/<img\b([^>]*?)\/?>/gi, (all, attrs) => {
+    const attr = (name) => new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i").exec(attrs)?.[1] ?? ""
+    const src = attr("src")
+    if (!src) return ""
+    const width = /(?:^|;)\s*width\s*:\s*([\d.]+(?:in|cm|mm|px|%))/i.exec(attr("style"))?.[1]
+    return image(attr("alt").replace(/[[\]]/g, ""), src, width ? `{width=${width}}` : "")
+  })
+  return depth ? text : text.replace(/(!\[[^\]]*\]\(<)\//g, "$1")
+}
+
+/** The text under `heading` (any level) up to the next heading of that level or higher. */
+export function sectionOf(markdown, heading) {
+  const lines = markdown.split("\n")
+  const want = headingAnchor(heading)
+  const start = lines.findIndex(
+    (l) => /^#{1,6}\s/.test(l) && headingAnchor(l.replace(/^#+\s+/, "")) === want,
+  )
+  if (start === -1) return ""
+  const level = /^#+/.exec(lines[start])[0].length
+  const end = lines.findIndex((l, i) => i > start && new RegExp(`^#{1,${level}}\\s`).test(l))
+  return lines.slice(start + 1, end === -1 ? undefined : end).join("\n")
+}
+
+/** index.md for the book's export: no "## Contents" list (the export has its own). */
+export const withoutContents = (markdown) => {
+  const lines = markdown.split("\n")
+  const start = lines.findIndex((l) => /^##\s+Contents\s*$/i.test(l))
+  if (start === -1) return markdown
+  const end = lines.findIndex((l, i) => i > start && /^#{1,2}\s/.test(l))
+  return [...lines.slice(0, start), ...(end === -1 ? [] : lines.slice(end))].join("\n")
+}
+
+/** The page's first H1 and the rest: the H1 is the export's title, not its first line. */
+export const splitTitle = (markdown) => {
+  const m = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown)
+  if (!m || markdown.slice(0, m.index).trim()) return { title: "", body: markdown }
+  return { title: plainText(m[1]), body: markdown.slice(m.index + m[0].length) }
+}
+
+// --- On pandoc's AST (pandoc -t json) ---
+
+const inlineText = (inlines) =>
+  inlines
+    .map((i) =>
+      i.t === "Str"
+        ? i.c
+        : i.t === "Space" || i.t === "SoftBreak" || i.t === "LineBreak"
+          ? " "
+          : i.t === "Code"
+            ? i.c[1]
+            : i.t === "Math"
+              ? i.c[1]
+              : [
+                    "Emph",
+                    "Strong",
+                    "Strikeout",
+                    "Superscript",
+                    "Subscript",
+                    "SmallCaps",
+                    "Underline",
+                  ].includes(i.t)
+                ? inlineText(i.c)
+                : ["Link", "Span", "Quoted", "Cite"].includes(i.t)
+                  ? inlineText(i.c[1])
+                  : "",
+    )
+    .join("")
+
+const REFERENCE_HEADING =
+  /^(?:[\d.]+\s+)?(?:references|reference list|bibliography|works cited|literature cited)\s*:?$/i
+
+/**
+ * Paragraph numbers on pandoc's blocks, by edition-integrations' rule for the
+ * site (numberParagraphs): top-level paragraphs with text, not inside a
+ * references section (up to the next heading of the same or higher rank).
+ * With `mark`, each numbered paragraph starts with Typst's #pnum(n). Returns
+ * how many it numbered.
+ */
+export function numberBlocks(blocks, mark = false) {
+  let n = 0
+  let refsRank = 0
+  for (const b of blocks) {
+    if (b.t === "Header") {
+      const rank = b.c[0]
+      if (refsRank && rank <= refsRank) refsRank = 0
+      if (REFERENCE_HEADING.test(inlineText(b.c[2]).replace(/\s+/g, " ").trim())) refsRank = rank
+      continue
+    }
+    if (b.t !== "Para" || refsRank || !inlineText(b.c).trim()) continue
+    n++
+    if (mark) b.c.unshift({ t: "RawInline", c: ["typst", `#pnum(${n})`] })
+  }
+  return n
+}
+
+/** Text as pandoc inlines: Str and Space. */
+export const pandocWords = (text) =>
+  String(text)
+    .split(/(\s+)/)
+    .filter(Boolean)
+    .map((w) => (/^\s+$/.test(w) ? { t: "Space" } : { t: "Str", c: w }))
+const para = (...inlines) => ({ t: "Para", c: inlines.flat(Infinity) })
+const strong = (text) => ({ t: "Strong", c: pandocWords(text) })
+const linkTo = (url, text = url) => ({ t: "Link", c: [["", [], []], pandocWords(text), [url, ""]] })
+
+/**
+ * The export's front page, as pandoc blocks after the title, authors and date
+ * (pandoc's own title block): publisher, published date, version, canonical
+ * URL, licence and the APA citation (`apa`, the build's runs). A page break
+ * follows it in the PDF.
+ */
+export function frontPage(meta, { version, apa }) {
+  const line = (label, ...value) => para(strong(`${label}:`), { t: "Space" }, ...value)
+  return [
+    {
+      t: "Div",
+      c: [
+        ["front-page", [], []],
+        [
+          line("Publisher", pandocWords(meta.publisher)),
+          line("Published", pandocWords(meta.published || "not yet")),
+          line("Version", pandocWords(version)),
+          line("Online at", linkTo(meta.url)),
+          line(
+            "Licence",
+            pandocWords(`This work is licensed under ${licenceName(meta.licence.id)} (`),
+            linkTo(meta.licence.url),
+            pandocWords(meta.rights === "open access" ? "). Open access." : ")."),
+          ),
+          line(
+            "Cite as",
+            apa.map((r) =>
+              r.italic ? { t: "Emph", c: pandocWords(r.text) } : pandocWords(r.text),
+            ),
+          ),
+        ],
+      ],
+    },
+    { t: "RawBlock", c: ["typst", "#pagebreak()"] },
+  ]
+}
+
+/** "CC-BY-SA-4.0" as people write it: "CC BY-SA 4.0"; any other id as it is. */
+export const licenceName = (id) =>
+  /^CC0-1\.0$/.test(id)
+    ? "CC0 1.0"
+    : (/^CC-([A-Z-]+)-(\d\.\d)$/.exec(id)?.slice(1).join(" ").replace(/^/, "CC ") ?? id)
+
+/** pandoc's metadata for an export: title, authors, date, language. */
+export const exportMeta = (meta) => {
+  const str = (s) => ({ t: "MetaInlines", c: pandocWords(s) })
+  return {
+    title: str(meta.title),
+    author: { t: "MetaList", c: meta.creators.map((c) => str(c.name)) },
+    ...(meta.published ? { date: str(meta.published) } : {}),
+    lang: { t: "MetaString", c: meta.lang },
+  }
 }

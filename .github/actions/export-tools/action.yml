@@ -1,0 +1,56 @@
+# pandoc and Typst for builder/export.mjs (the downloads), at pinned versions
+# with their release checksums, cached by version. pandoc is the platform's one
+# pin (book-requests' PANDOC_VERSION). To move either: change the version and
+# its sha256 here, together.
+name: export tools
+description: pandoc and Typst at the builder's pinned versions, on the PATH.
+inputs:
+  save:
+    description: >
+      "true" saves the cache. Only ci.yml does: jobs that read a book's content
+      (reconcile-book, design-preview) restore only, as for the plugin cache.
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - id: pins
+      shell: bash
+      run: |
+        {
+          echo "pandoc=3.11"
+          echo "pandoc_sha=37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6"
+          echo "typst=0.15.1"
+          echo "typst_sha=a6d077d0a95eed5a2eba715b2dae06be954f624ccbf85758a03f389ded33118c"
+        } >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.export-tools
+        key: export-tools-${{ runner.os }}-pandoc-${{ steps.pins.outputs.pandoc }}-typst-${{ steps.pins.outputs.typst }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PANDOC: ${{ steps.pins.outputs.pandoc }}
+        PANDOC_SHA: ${{ steps.pins.outputs.pandoc_sha }}
+        TYPST: ${{ steps.pins.outputs.typst }}
+        TYPST_SHA: ${{ steps.pins.outputs.typst_sha }}
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.export-tools/bin
+        cd "$RUNNER_TEMP"
+        curl -sfLo pandoc.tar.gz "https://github.com/jgm/pandoc/releases/download/$PANDOC/pandoc-$PANDOC-linux-amd64.tar.gz"
+        echo "$PANDOC_SHA  pandoc.tar.gz" | sha256sum -c -
+        tar xzf pandoc.tar.gz && mv "pandoc-$PANDOC/bin/pandoc" ~/.export-tools/bin/
+        curl -sfLo typst.tar.xz "https://github.com/typst/typst/releases/download/v$TYPST/typst-x86_64-unknown-linux-musl.tar.xz"
+        echo "$TYPST_SHA  typst.tar.xz" | sha256sum -c -
+        tar xJf typst.tar.xz && mv typst-x86_64-unknown-linux-musl/typst ~/.export-tools/bin/
+    - if: inputs.save == 'true' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.export-tools
+        key: export-tools-${{ runner.os }}-pandoc-${{ steps.pins.outputs.pandoc }}-typst-${{ steps.pins.outputs.typst }}
+    - shell: bash
+      run: |
+        echo "$HOME/.export-tools/bin" >> "$GITHUB_PATH"
+        "$HOME/.export-tools/bin/pandoc" --version | head -1
+        "$HOME/.export-tools/bin/typst" --version
