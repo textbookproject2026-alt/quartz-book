@@ -213,7 +213,7 @@ The header of each workflow shows its caller.
 | ----------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | `book-backup-annotations.yml` | Hypothes.is backup to the book's `backups` branch                                                     | `backup-annotations.yml`                               |
 | `book-weekly-snapshot.yml`    | The `snapshot-YYYY-MM-DD` tag, when the live branch changed                                           | `weekly-snapshot.yml`                                  |
-| `book-community-page.yml`     | `community/<page>.md` as an auto-merging pull request; `page:` contributors, dashboard or derivatives | `contributors.yml`, `dashboard.yml`, `derivatives.yml` |
+| `book-community-page.yml`     | `community/<page>.md` as an auto-merging pull request; `page:` contributors, dashboard or derivatives. Contributors also writes the credit ledger, `community/credits.json` | `contributors.yml`, `dashboard.yml`, `derivatives.yml` |
 | `book-lint.yml`               | markdownlint, with `automation/.markdownlint-cli2.yaml` unless the book has its own                   | `lint.yml`                                             |
 | `book-link-check.yml`         | lychee, ignoring `automation/.lycheeignore` (the book's address) plus the book's own list             | `link-check.yml`                                       |
 | `book-decision-notice.yml`    | When a `proposed-edit` pull request or a `section-note` issue closes, one comment @mentioning the signed-in contributor: accepted or declined, the maintainer's last comment, the page | `decision-notice.yml` (textbook-template) |
@@ -357,10 +357,22 @@ the page's `citation_pdf_url`.
 - **Design previews** make downloads only when the pull request touches
   `builder/export.mjs` or the tools' pins; otherwise `TB_EXPORTS=off`.
 
+## Credit
+
+`community/credits.json` (generated, in the book repo) is the credit ledger: every
+contributor and each accepted contribution (kind `edit`, `note`, `suggestion` or `commit`,
+its reference, date of acceptance and the pages it touched), written with
+`community/contributors.md` by `automation/scripts/gen-contributors.mjs` from the commits,
+the merged `proposed-edit` pull requests and the `section-note` / `suggested-edit` issues
+closed as completed (`automation/scripts/lib/credits.mjs` has the policy;
+`lib/attribution.mjs` reads suggest-edit-function's attribution lines, for the decision
+notice too). `community/credit-overrides.yml` (hide, rename, merge, no-credit) and the
+`no-credit` label take people or items out.
+
 ## Tests
 
 ```
-node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/export.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
+node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/credits.test.mjs test/export.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 read -r slug repo branch < <(node test/check-live-book.mjs --pick)
 git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" ../live-book
 ./build-book.sh ../live-book --branch "$branch" --out /tmp/live-book-site

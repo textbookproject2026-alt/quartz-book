@@ -22,22 +22,15 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RegistryError, exitOnRegistryError, loadBook } from './lib/registry.mjs';
 import { quartzUrl } from './backup-annotations.mjs';
+import { contributorOf, filesOf } from './lib/attribution.mjs';
+
+export { contributorOf };
 
 export const MARKER = '<!-- tb-decision-notice -->';
 const QUOTE_MAX = 1200;
 
-const LOGIN = '[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}';
-
-/** The signed-in contributor's login from the attribution line, or null (anonymous, or none). */
-export function contributorOf(body = '') {
-  const m = new RegExp(`^\\*\\*(?:Proposed|Submitted) by:\\*\\* @(${LOGIN}) \\(signed in with GitHub\\)\\s*$`, 'm').exec(body);
-  return m ? m[1] : null;
-}
-
-/** The file the proposal or note is about: its **File:** line's path. */
-export function fileOf(body = '') {
-  return /^\*\*File:\*\* \[`([^`]+)`\]/m.exec(body)?.[1] ?? null;
-}
+/** The file the proposal or note is about: its first **File:** line's path. */
+export const fileOf = (body = '') => filesOf(body)[0] ?? null;
 
 /** A note on one paragraph: its **Where:** link, the paragraph's address on the site. */
 export function paragraphOf(body = '') {
