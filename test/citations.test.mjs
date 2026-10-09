@@ -77,3 +77,66 @@ test("runs: entities decoded, only <i> kept", () => {
     [{ text: "A & B <" }, { text: "T", italic: true }, { text: " x’" }],
   )
 })
+
+// --- Books with editors (batch 2a) ----------------------------------------------
+
+const edited = (fm) => {
+  const b = bookMetadata(facts, {
+    relPath: "index.md",
+    slug: "index",
+    frontmatter: fm,
+    markdown: "# Book T\n",
+  })
+  const c = pageMetadata(
+    {
+      relPath: "chapters/c.md",
+      slug: "chapters/c",
+      title: "Chapter One",
+      frontmatter: { authors: ["Cee Writer"] },
+      markdown: "",
+    },
+    b,
+    facts,
+  )
+  return { book: formatAll(cslItem(b)), chapter: formatAll(cslItem(c)) }
+}
+
+test("a chapter in a book with editors: the editors in all four styles", () => {
+  const { book, chapter } = edited({ authors: ["Ann Author"], editors: ["Ed Itor", "Sue Second"] })
+  assert.equal(
+    text(chapter.apa),
+    "Writer, C. (2026). Chapter One. In E. Itor & S. Second (Eds.), Book T. Confused for Now. https://book.example.org/chapters/c",
+  )
+  assert.equal(
+    text(chapter.chicago),
+    "Writer, Cee. 2026. “Chapter One.” In Book T, edited by Ed Itor and Sue Second. Confused for Now. https://book.example.org/chapters/c.",
+  )
+  assert.equal(
+    text(chapter.mla),
+    "Writer, Cee. “Chapter One.” Book T, edited by Ed Itor and Sue Second, Confused for Now, 2026, https://book.example.org/chapters/c.",
+  )
+  assert.match(
+    text(chapter.harvard),
+    /^Writer, C\. \(2026\) ‘Chapter One’, in E\. Itor and S\. Second \(eds\) Book T\./,
+  )
+  assert.match(text(book.apa), /^Author, A\. \(2026\)\. Book T \(E\. Itor & S\. Second, Eds\.\)\./)
+})
+
+test("a book with editors only: an edited volume, cited by its editors (Ed./Eds.)", () => {
+  const { book } = edited({ editors: ["Ed Itor", "Sue Second"] })
+  assert.equal(
+    text(book.apa),
+    "Itor, E., & Second, S. (Eds.). (2026). Book T. Confused for Now. https://book.example.org/",
+  )
+  assert.equal(
+    text(book.chicago),
+    "Itor, Ed, and Sue Second, eds. 2026. Book T. Confused for Now. https://book.example.org/.",
+  )
+  assert.equal(
+    text(book.mla),
+    "Itor, Ed, and Sue Second, editors. Book T. Confused for Now, 2026, https://book.example.org/.",
+  )
+  assert.match(text(book.harvard), /^Itor, E\. and Second, S\. \(eds\) \(2026\) Book T\./)
+  const one = edited({ editors: ["Ed Itor"] }).book
+  assert.match(text(one.apa), /^Itor, E\. \(Ed\.\)\. \(2026\)/)
+})

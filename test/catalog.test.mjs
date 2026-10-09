@@ -17,6 +17,8 @@ import {
   headTags,
   jsonLd,
   creatorsOf,
+  editorsOf,
+  CREDIT_ROLES,
   cutAtWord,
   dateOnly,
   firstParagraph,
@@ -216,6 +218,7 @@ test("book metadata: index.md first, then the registry, then the platform", () =
     type: "paper",
     title: "Ontology for Social Research",
     creators: [{ name: "Brandon Sommer" }],
+    editors: [],
     publisher: "Confused for Now",
     created: "2026-09-20",
     published: "2026-10-08",
@@ -522,4 +525,121 @@ test("recent changes from git: newest first, added vs updated, renames, deletion
   // A shallow clone's boundary commit claims every file was added: dropped.
   const root = commits.at(-1).sha
   assert.equal(parseGitLog(log, [root]).length, 3)
+})
+
+// --- Editors and roles (batch 2a) ------------------------------------------------
+
+test("editors: like authors (names or { name, orcid, github }), no fallback; GitHub logins checked", () => {
+  assert.deepEqual(
+    editorsOf({
+      editors: [
+        "A",
+        { name: "B", github: "@b-login", orcid: "0000-0002-1825-0097" },
+        { name: "C", github: "not a login!" },
+      ],
+    }),
+    [{ name: "A" }, { name: "B", orcid: "0000-0002-1825-0097", github: "b-login" }, { name: "C" }],
+  )
+  assert.deepEqual(editorsOf({ editor: "Solo" }), [{ name: "Solo" }])
+  assert.deepEqual(editorsOf({}), [])
+  assert.deepEqual(Object.keys(CREDIT_ROLES), ["author", "editor", "contributor"])
+  assert.deepEqual(CREDIT_ROLES.editor.credit, ["Writing – review & editing", "Supervision"])
+})
+
+test("an edited volume: no book authors but editors, so cited by its editors; a chapter's editors are the book's unless it has its own", () => {
+  const index = page("index.md", "index", { frontmatter: { editors: ["Ed Itor", "Sue Second"] } })
+  index.markdown = "# Book T\n"
+  const book = bookMetadata(bookFacts, index)
+  assert.deepEqual(book.creators, [])
+  assert.deepEqual(book.editors, [{ name: "Ed Itor" }, { name: "Sue Second" }])
+  const ch = pageMetadata(
+    page("chapters/c.md", "chapters/c", { frontmatter: { authors: ["Cee Writer"] } }),
+    book,
+    bookFacts,
+  )
+  assert.deepEqual(ch.creators, [{ name: "Cee Writer" }])
+  assert.deepEqual(ch.editors, book.editors)
+  // A chapter with no authors of its own in an edited volume: batch 1's chain ends at the maintainer.
+  const bare = pageMetadata(page("chapters/d.md", "chapters/d"), book, bookFacts)
+  assert.deepEqual(bare.creators, [{ name: "Brandon Sommer" }, { name: "Caroline Laschkolnig" }])
+  const own = pageMetadata(
+    page("chapters/e.md", "chapters/e", { frontmatter: { editors: ["Other Ed"] } }),
+    book,
+    bookFacts,
+  )
+  assert.deepEqual(own.editors, [{ name: "Other Ed" }])
+  // Authors and editors: authors cited, editors as editors.
+  const both = bookMetadata(bookFacts, {
+    ...index,
+    frontmatter: { authors: ["Ann Author"], editors: ["Ed Itor"] },
+  })
+  assert.deepEqual(both.creators, [{ name: "Ann Author" }])
+  assert.deepEqual(both.editors, [{ name: "Ed Itor" }])
+  // Neither: the maintainer, as batch 1.
+  assert.deepEqual(bookMetadata(bookFacts, page("index.md", "index")).creators, [
+    { name: "Brandon Sommer" },
+    { name: "Caroline Laschkolnig" },
+  ])
+})
+
+test("editors in the head: citation_editor (Zotero), DC.contributor with contributors, JSON-LD editor and contributor", () => {
+  const index = page("index.md", "index", {
+    frontmatter: {
+      editors: [{ name: "Ed Itor", orcid: "0000-0002-1825-0097", github: "editor1" }],
+    },
+  })
+  index.markdown = "# Book T\n"
+  const book = bookMetadata({ ...bookFacts, type: "book" }, index)
+  const ch = pageMetadata(
+    page("chapters/c.md", "chapters/c", { title: "C", frontmatter: { authors: ["Cee Writer"] } }),
+    book,
+    bookFacts,
+  )
+  const tags = headTags(ch, { contributors: [{ name: "Gobi", github: "gobi10k" }] })
+  assert.ok(
+    tags.includes(
+      '<meta name="citation_author" content="Cee Writer"><meta name="citation_editor" content="Ed Itor">',
+    ),
+  )
+  assert.ok(
+    tags.includes(
+      '<meta name="DC.contributor" content="Ed Itor"><meta name="DC.contributor" content="Gobi">',
+    ),
+  )
+  assert.ok(!tags.includes('citation_author" content="Gobi'), "contributors are never cited")
+  const ld = jsonLd(ch, { contributors: [{ name: "Gobi", github: "gobi10k" }] })
+  assert.deepEqual(ld.isPartOf.editor, [
+    {
+      "@type": "Person",
+      name: "Ed Itor",
+      sameAs: ["https://orcid.org/0000-0002-1825-0097", "https://github.com/editor1"],
+    },
+  ])
+  assert.ok(!("editor" in ld), "a chapter's editors are its book's")
+  assert.deepEqual(ld.contributor, [
+    { "@type": "Person", name: "Gobi", sameAs: "https://github.com/gobi10k" },
+  ])
+  const front = jsonLd(book)
+  assert.ok(!("author" in front))
+  assert.equal(front.editor[0].name, "Ed Itor")
+  assert.ok(headTags(book).includes('<meta name="citation_editor" content="Ed Itor">'))
+  assert.ok(!headTags(book).includes("citation_author"))
+})
+
+test("CSL: an edited volume has editor and no author; a chapter carries its book's editors", () => {
+  const index = page("index.md", "index", { frontmatter: { editors: ["Ed Itor"] } })
+  index.markdown = "# Book T\n"
+  const book = bookMetadata({ ...bookFacts, type: "book" }, index)
+  const item = cslItem(book)
+  assert.ok(!("author" in item))
+  assert.deepEqual(item.editor, [{ family: "Itor", given: "Ed" }])
+  const ch = cslItem(
+    pageMetadata(
+      page("chapters/c.md", "chapters/c", { title: "C", frontmatter: { authors: ["Cee Writer"] } }),
+      book,
+      bookFacts,
+    ),
+  )
+  assert.deepEqual(ch.author, [{ family: "Writer", given: "Cee" }])
+  assert.deepEqual(ch.editor, [{ family: "Itor", given: "Ed" }])
 })
