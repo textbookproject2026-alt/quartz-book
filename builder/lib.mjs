@@ -2462,7 +2462,9 @@ export function tableLayout(html) {
     (whole, open, text, icon, close) => {
       if (/<[^>]+>/.test(text)) return whole // formatted link text: left as it is
       const m = /^([\s\S]*?)(\S+)$/.exec(text)
-      if (!m) return whole
+      // A long last word (a web address as the link's text) must stay free to break,
+      // or it pushes the page wider than a phone (batch 2b, iPhone 13 at 390px).
+      if (!m || m[2].length > 24) return whole
       return `${open}${m[1]}<span class="tb-nowrap">${m[2]}${icon}</span>${close}`
     },
   )
