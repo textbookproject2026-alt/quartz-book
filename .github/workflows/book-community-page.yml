@@ -13,6 +13,7 @@ name: book-community-page
 #     contents: write
 #     pull-requests: write
 #     issues: read          # contributors: the accepted notes and suggestions
+#     actions: write        # start the book's required checks on the pull request
 #   jobs:
 #     contributors:
 #       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-community-page.yml@stable
@@ -67,6 +68,7 @@ jobs:
       contents: write # push the chore/<page>-update branch
       pull-requests: write # open or update the pull request
       issues: read # contributors: the accepted notes and suggestions (the credit ledger)
+      actions: write # start the book's required checks on the pull request (below)
     concurrency:
       group: book-community-${{ inputs.page }}
       cancel-in-progress: false
@@ -261,6 +263,25 @@ jobs:
           echo "Opened ${URL}"
           echo "Opened ${LABEL} PR: ${URL}" >> "$GITHUB_STEP_SUMMARY"
           echo "number=${URL##*/}" >> "$GITHUB_OUTPUT"
+
+      # The book's lint and link check are required on main (batch 2b), but a pull
+      # request opened or pushed with the workflow token starts no pull_request or
+      # push runs. workflow_dispatch is the one event this token may start: run both
+      # on the branch, so its head commit gets the checks auto-merge waits for. A
+      # book without one of them (or a caller without actions: write) says so and
+      # leaves the pull request for a person.
+      - name: Start the book's checks on the pull request
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in lint.yml link-check.yml; do
+            if gh workflow run "$wf" --ref "$PR_BRANCH"; then
+              echo "Started $wf on $PR_BRANCH."
+            else
+              echo "::warning::Couldn't start $wf on $PR_BRANCH (missing, no workflow_dispatch, or no actions: write); its check may not report on the pull request."
+            fi
+          done
 
       # Auto-merge only a pull request that is provably this job's own and changes
       # nothing but the one page. Anything else is left for a person.
