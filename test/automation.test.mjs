@@ -10,6 +10,12 @@ import { slugifyFilePath } from "@quartz-community/utils/path"
 import { slugUrl } from "../builder/lib.mjs"
 import { pageUrls, publishUrl, quartzUrl } from "../automation/scripts/backup-annotations.mjs"
 import { mergeIgnore } from "../automation/scripts/lychee-ignore.mjs"
+import {
+  contributorOf,
+  decisionComment,
+  MARKER,
+  reasonOf,
+} from "../automation/scripts/decision-notice.mjs"
 
 const scripts = new URL("../automation/scripts/", import.meta.url).pathname
 const fixture = JSON.parse(
@@ -219,13 +225,6 @@ test("a script run in a repo the registry doesn't know stops before writing", ()
 })
 
 // --- the decision notice (book-decision-notice.yml) ----------------------------------
-
-import {
-  contributorOf,
-  decisionComment,
-  MARKER,
-  reasonOf,
-} from "../automation/scripts/decision-notice.mjs"
 
 const BOOK = {
   site: { domain: "book.example.invalid" },

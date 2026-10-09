@@ -216,6 +216,7 @@ The header of each workflow shows its caller.
 | `book-community-page.yml`     | `community/<page>.md` as an auto-merging pull request; `page:` contributors, dashboard or derivatives | `contributors.yml`, `dashboard.yml`, `derivatives.yml` |
 | `book-lint.yml`               | markdownlint, with `automation/.markdownlint-cli2.yaml` unless the book has its own                   | `lint.yml`                                             |
 | `book-link-check.yml`         | lychee, ignoring `automation/.lycheeignore` (the book's address) plus the book's own list             | `link-check.yml`                                       |
+| `book-decision-notice.yml`    | When a `proposed-edit` pull request or a `section-note` issue closes, one comment @mentioning the signed-in contributor: accepted or declined, the maintainer's last comment, the page | `decision-notice.yml` (textbook-template) |
 
 - **Callers name `@stable`,** the same builder commit `reconcile` builds with, so a
   change here reaches the books' jobs when `stable` moves, after its pull request's CI.
