@@ -1,0 +1,72 @@
+name: book-decision-notice
+
+# Tells a signed-in contributor the authors' decision (batch 1, step 7), as a
+# reusable workflow. When a pull request labelled proposed-edit (the in-site
+# editor's) or an issue labelled section-note (a note on one paragraph) is
+# closed, one comment @mentions the contributor, so GitHub notifies and emails
+# them: accepted or declined, the maintainer's last comment quoted as the
+# reason, and the page's link when accepted. An anonymous contributor gets no
+# comment (automation/scripts/decision-notice.mjs).
+#
+# Each book keeps a thin caller (textbook-template's decision-notice.yml):
+#
+#   on:
+#     pull_request:
+#       types: [closed]
+#     issues:
+#       types: [closed]
+#   permissions:
+#     contents: read
+#     issues: write
+#     pull-requests: write
+#   jobs:
+#     notice:
+#       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-decision-notice.yml@stable
+#
+# The proposals' branches are in the book's own repo, so pull_request (not
+# pull_request_target) has a token that can comment.
+
+on:
+  workflow_call:
+    inputs:
+      platform_ref:
+        description: The quartz-book ref the script is taken from. Keep it the ref the caller names after the @.
+        required: false
+        type: string
+        default: stable
+
+jobs:
+  notice:
+    if: >-
+      (github.event.pull_request && contains(github.event.pull_request.labels.*.name, 'proposed-edit')) ||
+      (github.event.issue && !github.event.issue.pull_request && contains(github.event.issue.labels.*.name, 'section-note'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write # the comment, on an issue or a pull request
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: textbook.config.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Fetch the platform's scripts
+        env:
+          REF: ${{ inputs.platform_ref }}
+        run: |
+          set -euo pipefail
+          git -c credential.helper= clone --quiet --depth 1 --branch "$REF" --filter=blob:none --sparse \
+            https://github.com/textbookproject2026-alt/quartz-book.git "$RUNNER_TEMP/platform"
+          git -C "$RUNNER_TEMP/platform" sparse-checkout set automation
+          echo "quartz-book at $REF: $(git -C "$RUNNER_TEMP/platform" rev-parse HEAD)"
+
+      - name: Tell the contributor
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/platform/automation/scripts/decision-notice.mjs"
