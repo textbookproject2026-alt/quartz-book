@@ -149,9 +149,9 @@ jobs:
 
       - name: Phone audit (batch 2b's seven checks, 360/390/412, light and dark)
         run: |
-          node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8803 &
+          node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8804 &
           sleep 1
-          node test/phone-audit.mjs http://127.0.0.1:8803/ "$RUNNER_TEMP/phone-layout/audit"
+          node test/phone-audit.mjs http://127.0.0.1:8804/ "$RUNNER_TEMP/phone-layout/audit"
 
       - name: Keep the phone screenshots
         if: always()
