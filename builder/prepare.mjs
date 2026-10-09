@@ -129,6 +129,8 @@ try {
   const facts = {
     ...opts,
     bookCommit,
+    // When the content being built was committed: every page's "published" date.
+    bookCommitDate: git(book, "show", "-s", "--format=%cI", "HEAD"),
     builderCommit: git(BUILDER, "rev-parse", "HEAD") + (builderDirty ? "-dirty" : ""),
     registryDigest: registryDigest(registry, entry),
     status: entry.status,

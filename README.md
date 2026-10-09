@@ -281,10 +281,50 @@ Like the marker, it has no timestamp of its own: the same inputs give the same f
 After a run that deployed a live branch, `reconcile` fires the portal's deploy hook
 (`PORTAL_DEPLOY_HOOK`, optional) so the portal picks the change up.
 
+## Metadata and citations
+
+Every page of a book carries citation metadata, built from one model in
+`builder/lib.mjs` (`bookMetadata`, `pageMetadata`; `catalog.test.mjs` pins it) and
+added to the catalog as `metadata` (per page and for the book). Each field comes from
+the most specific place that has it:
+
+| Field | From |
+| --- | --- |
+| creators | `authors:`/`author:` (page, else index.md, else the registry's maintainer); each a name or `{ name, orcid }` |
+| title | `title:`, else the first H1, else the file name; the book's from index.md, else the registry |
+| publisher | registry `publisher`, else Confused for Now |
+| created / published | `created:` / `published:`, else the file's first commit / the commit being built |
+| summary | `summary:` or `description:`, else (front page) the registry's summary, else the first paragraph; under 300 characters |
+| keywords | `keywords:` and the tags, without `concept` |
+| type | `resource_type:` (book, chapter, paper, report, article, concept), else registry `type` on the front page, `concept` on concept pages, `chapter` elsewhere |
+| lang, doi | `lang:` / `doi:`, else registry `lang` (else `en`) / `doi` (emitted only when set) |
+| licence | registry `licence` (else CC-BY-SA-4.0), with its URL; always open access |
+
+`finish.mjs` puts it in each page's head: Highwire Press tags (what Zotero and Google
+Scholar read: a chapter saves as a book section, the front page as a book), Dublin
+Core, and schema.org JSON-LD (`Book` on the front page, `Chapter` in the `Book`,
+`DefinedTerm` on a concept page). Beside it, `<script id="tb-cite">` holds the page's
+and the book's CSL-JSON and their citations in APA 7, Chicago author-date, MLA and
+Harvard (Cite Them Right), formatted at build time by `builder/citations.mjs` with
+citation-js and the styles in `builder/csl/`, for edit-on-github's Cite dialog. An
+author writes, for example:
+
+```yaml
+---
+authors:
+  - name: Brandon Sommer
+    orcid: 0000-0002-1825-0097
+  - Caroline Laschkolnig
+summary: How ontology situates research methods.
+keywords: [critical realism, methods]
+resource_type: chapter
+---
+```
+
 ## Tests
 
 ```
-node --test test/lib.test.mjs test/catalog.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
+node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 read -r slug repo branch < <(node test/check-live-book.mjs --pick)
 git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" ../live-book
 ./build-book.sh ../live-book --branch "$branch" --out /tmp/live-book-site

@@ -105,6 +105,12 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     hypothesisGroups: (book.annotations?.hypothesis_groups ?? []).map((g) => g.id),
     licence: book.licence,
     authors: book.maintainer?.name ?? "",
+    // Citation metadata (bookMetadata): the registry's optional publisher, lang
+    // and doi, and its summary, the front page's fallback.
+    summary: book.summary ?? "",
+    publisher: book.publisher ?? "",
+    lang: book.lang ?? "",
+    doi: book.doi ?? "",
     editionTemplateRepo: book.editions?.template_repo ?? null,
   }
 }
@@ -457,15 +463,19 @@ export function htmlUrl(outPath) {
  */
 export function addCanonical(html, domain, url) {
   if (/<link rel="canonical"/.test(html)) return html
-  const href = `https://${domain}${url
-    .split("/")
-    .map((seg) => encodeURIComponent(decodeURIComponent(seg)))
-    .join("/")}`
+  const href = canonicalHref(domain, url)
   const tag = `<link rel="canonical" href="${href}" data-builder="quartz-book">`
   if (!html.includes("</head>"))
     throw new Error(`no </head> to put the canonical link before (${url}).`)
   return html.replace("</head>", `${tag}</head>`)
 }
+
+/** A page's address on the book's domain, each path segment encoded once. */
+export const canonicalHref = (domain, url) =>
+  `https://${domain}${url
+    .split("/")
+    .map((seg) => encodeURIComponent(decodeURIComponent(seg)))
+    .join("/")}`
 
 /**
  * A folder or tag listing (folder-page's <ul class="section-ul">) in the
@@ -823,8 +833,30 @@ const asList = (value) =>
     .map((v) => String(v ?? "").trim())
     .filter(Boolean)
 
-/** A page's authors from its frontmatter: `authors` (a list, or "A, B") or `author`. */
-export const authorsOf = (frontmatter = {}) => asList(frontmatter.authors ?? frontmatter.author)
+const ORCID = /^(?:https?:\/\/orcid\.org\/)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])$/i
+
+/**
+ * A page's creators from its frontmatter: `authors` (a list, or "A, B") or
+ * `author`, each a name or { name, orcid }. An ORCID iD is kept as its bare
+ * 0000-0000-0000-000X form, whether given bare or as its orcid.org URL; one
+ * that isn't an iD is dropped, the name kept.
+ */
+export const creatorsOf = (frontmatter = {}) => {
+  const raw = frontmatter.authors ?? frontmatter.author
+  const items = Array.isArray(raw) ? raw : [raw]
+  return items.flatMap((item) => {
+    if (item && typeof item === "object") {
+      const name = String(item.name ?? "").trim()
+      if (!name) return []
+      const id = ORCID.exec(String(item.orcid ?? "").trim())?.[1]?.toUpperCase()
+      return [id ? { name, orcid: id } : { name }]
+    }
+    return asList(item).map((name) => ({ name }))
+  })
+}
+
+/** A page's authors' names, from its frontmatter (creatorsOf). */
+export const authorsOf = (frontmatter = {}) => creatorsOf(frontmatter).map((c) => c.name)
 
 /** Every tag a page carries: frontmatter `tags` and `tag`, plus what Quartz found inline. */
 export const tagsOf = (frontmatter = {}, indexed = []) => {
@@ -903,6 +935,9 @@ export function buildCatalog({ facts, pages, commits = [] }) {
   const bySlug = new Map(pages.map((p) => [p.slug, p]))
   const byRelPath = new Map(pages.map((p) => [p.relPath, p]))
   const index = pages.find((p) => p.slug === "index")
+  // The citation metadata (bookMetadata, pageMetadata), when the build gave the
+  // registry facts it needs. Added beside what the portal already reads.
+  const book = facts.domain ? bookMetadata(facts, index) : null
 
   const out = [...pages]
     .sort((a, b) => a.relPath.localeCompare(b.relPath))
@@ -921,6 +956,7 @@ export function buildCatalog({ facts, pages, commits = [] }) {
         links: [...new Set((p.links ?? []).filter((s) => s !== p.slug && bySlug.has(s)))]
           .map(slugUrl)
           .sort(),
+        ...(book ? { metadata: pageMetadata(p, book, facts) } : {}),
       }
     })
 
@@ -954,9 +990,327 @@ export function buildCatalog({ facts, pages, commits = [] }) {
     slug: facts.slug,
     book_commit: facts.bookCommit,
     authors: bookAuthors.length ? bookAuthors : [...new Set(out.flatMap((p) => p.authors))].sort(),
+    ...(book ? { metadata: book } : {}),
     pages: out,
     recent: recent.slice(0, RECENT_LIMIT),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Citation metadata: what the page heads (Highwire, Dublin Core, JSON-LD), the
+// citations and the exports say about a page and its book. One shape for both,
+// most specific source first. Pages are buildCatalog's, plus `markdown` (the
+// source without frontmatter) and `created` (the date of the file's first
+// commit). No timestamp of the build's own: the dates are the content's.
+
+/** The resource types a page can be (frontmatter `resource_type:`). */
+export const RESOURCE_TYPES = ["book", "chapter", "paper", "report", "article", "concept"]
+export const PUBLISHER = "Confused for Now"
+export const DEFAULT_LICENCE = "CC-BY-SA-4.0"
+export const SUMMARY_MAX = 300
+
+/** YYYY-MM-DD from a frontmatter date (a string or a YAML date) or git's ISO date, else "". */
+export const dateOnly = (value) => {
+  if (value instanceof Date) return isNaN(value) ? "" : value.toISOString().slice(0, 10)
+  const m = /^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/.exec(String(value ?? "").trim())
+  // A real day: Date rolls 2026-02-30 over into March, so compare the round trip.
+  const day = m && new Date(`${m[1]}T00:00:00Z`)
+  return day && !isNaN(day) && day.toISOString().startsWith(m[1]) ? m[1] : ""
+}
+
+/** Markdown inline syntax to plain text: links to their text, no emphasis, footnote marks or tags. */
+export const plainText = (md) =>
+  md
+    .replace(/<[^>]+>/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[\^[^\]]+\]/g, "")
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
+    .replace(/\[\[([^\]#|]+)(?:#[^\]|]*)?\]\]/g, (_, t) => t.split("/").pop())
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__|\*|_|`|==|~~)(?=\S)([^]*?\S)\1/g, "$2")
+    .replace(/\s+/g, " ")
+    .trim()
+
+/**
+ * The first prose paragraph of a page's markdown (no frontmatter): not a
+ * heading, list, quote, table, code, HTML block, image or `%%comment%%`.
+ */
+export function firstParagraph(markdown) {
+  const text = markdown.replace(/%%[^]*?%%/g, "").replace(/```[^]*?```/g, "")
+  for (const block of text.split(/\n\s*\n/)) {
+    const b = block.trim()
+    if (!b || /^(#|[-*+] |\d+[.)] |>|\||<|!\[|\[\^|---|\$\$)/.test(b)) continue
+    const plain = plainText(b)
+    if (plain) return plain
+  }
+  return ""
+}
+
+/** At most `max` characters, cut at a word boundary with an ellipsis. */
+export const cutAtWord = (text, max = SUMMARY_MAX) => {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max - 1)
+  const space = cut.lastIndexOf(" ")
+  return `${(space > 0 ? cut.slice(0, space) : cut).replace(/[\s,;:.–—-]+$/, "")}…`
+}
+
+const keywordsOf = (frontmatter, tags) => {
+  const seen = new Set()
+  return [...asList(frontmatter.keywords), ...tags].filter((k) => {
+    const key = normaliseTag(k)
+    if (!key || key === "concept" || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const docOf = (page) => ({
+  frontmatter: page?.frontmatter ?? {},
+  markdown: page?.markdown ?? "",
+  title: String(page?.title ?? "").trim(),
+  created: page?.created ?? "",
+})
+
+/**
+ * The book's metadata, from its index page (`index`, a catalog page, or
+ * undefined) and the build's facts (bookOptions, plus bookCommitDate).
+ */
+export function bookMetadata(facts, index) {
+  const { frontmatter: fm, markdown, created } = docOf(index)
+  const creators = creatorsOf(fm)
+  // index.md's own title (frontmatter, else its H1), else the registry's: an
+  // index without either is titled "index" by Quartz.
+  const h1 = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown)?.[1]
+  const title = String(fm.title ?? "").trim() || (h1 ? plainText(h1) : "")
+  const licence = facts.licence || DEFAULT_LICENCE
+  const doi = String(fm.doi ?? facts.doi ?? "").trim()
+  return {
+    type: RESOURCE_TYPES.includes(fm.resource_type) ? fm.resource_type : facts.type || "book",
+    title: title || facts.title,
+    creators: creators.length ? creators : asList(facts.authors).map((name) => ({ name })),
+    publisher: facts.publisher || PUBLISHER,
+    created: dateOnly(fm.created) || dateOnly(created),
+    published: dateOnly(fm.published) || dateOnly(facts.bookCommitDate),
+    summary: cutAtWord(
+      plainText(String(fm.summary ?? fm.description ?? "")) ||
+        String(facts.summary ?? "").trim() ||
+        firstParagraph(markdown),
+    ),
+    keywords: keywordsOf(fm, tagsOf(fm, index?.indexedTags)),
+    url: `https://${facts.domain}/`,
+    ...(doi ? { doi } : {}),
+    lang: String(fm.lang ?? "").trim() || facts.lang || "en",
+    format: "text/html",
+    rights: "open access",
+    licence: { id: licence, url: Object.values(licenceLink(licence))[0] },
+  }
+}
+
+/** A page's metadata: its own where it says, else its book's (bookMetadata). */
+export function pageMetadata(page, book, facts) {
+  if (page?.slug === "index") return book
+  const { frontmatter: fm, markdown, title, created } = docOf(page)
+  const tags = tagsOf(fm, page?.indexedTags)
+  const creators = creatorsOf(fm)
+  const doi = String(fm.doi ?? "").trim()
+  const type = RESOURCE_TYPES.includes(fm.resource_type)
+    ? fm.resource_type
+    : isConceptPage(page?.relPath ?? "", fm, tags)
+      ? "concept"
+      : "chapter"
+  return {
+    type,
+    title:
+      title ||
+      String(page?.relPath ?? "")
+        .split("/")
+        .pop()
+        .replace(/\.md$/i, ""),
+    creators: creators.length ? creators : book.creators,
+    publisher: book.publisher,
+    created: dateOnly(fm.created) || dateOnly(created),
+    published: dateOnly(fm.published) || dateOnly(facts.bookCommitDate),
+    summary: cutAtWord(
+      plainText(String(fm.summary ?? fm.description ?? "")) || firstParagraph(markdown),
+    ),
+    keywords: keywordsOf(fm, tags),
+    url: canonicalHref(facts.domain, slugUrl(page.slug)),
+    ...(doi ? { doi } : {}),
+    lang: String(fm.lang ?? "").trim() || book.lang,
+    format: "text/html",
+    rights: "open access",
+    licence: book.licence,
+    book: { title: book.title, url: book.url },
+  }
+}
+
+// --- In every page's head -----------------------------------------------------
+// Highwire Press tags (what Zotero and Google Scholar read), Dublin Core, and
+// schema.org JSON-LD, from pageMetadata; finish.mjs puts them before </head>.
+
+const escAttr = (v) =>
+  String(v)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+
+/** JSON for inside <script>: no "</script>" or "<!--" can close or confuse it. */
+export const scriptJson = (value) =>
+  JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029")
+
+const BOOKISH = {
+  book: "Book",
+  paper: "ScholarlyArticle",
+  article: "ScholarlyArticle",
+  report: "Report",
+}
+
+/** The schema.org object for a page: Book (or its book type) on the front page, Chapter, DefinedTerm. */
+export function jsonLd(meta, { pdfUrl = "" } = {}) {
+  const people = meta.creators.map((c) => ({
+    "@type": "Person",
+    name: c.name,
+    ...(c.orcid ? { sameAs: `https://orcid.org/${c.orcid}` } : {}),
+  }))
+  const common = {
+    name: meta.title,
+    url: meta.url,
+    ...(meta.summary ? { description: meta.summary } : {}),
+    inLanguage: meta.lang,
+    license: meta.licence.url,
+    isAccessibleForFree: true,
+    ...(meta.doi ? { identifier: `https://doi.org/${meta.doi}` } : {}),
+  }
+  const work = {
+    author: people,
+    publisher: { "@type": "Organization", name: meta.publisher },
+    ...(meta.created ? { dateCreated: meta.created } : {}),
+    ...(meta.published ? { datePublished: meta.published } : {}),
+    ...(meta.keywords.length ? { keywords: meta.keywords.join(", ") } : {}),
+    ...(pdfUrl
+      ? {
+          encoding: {
+            "@type": "MediaObject",
+            contentUrl: pdfUrl,
+            encodingFormat: "application/pdf",
+          },
+        }
+      : {}),
+  }
+  const book = meta.book && { "@type": "Book", name: meta.book.title, url: meta.book.url }
+  const body =
+    meta.type === "concept"
+      ? {
+          "@type": "DefinedTerm",
+          ...common,
+          inDefinedTermSet: {
+            "@type": "DefinedTermSet",
+            name: meta.book.title,
+            url: meta.book.url,
+          },
+        }
+      : meta.book
+        ? { "@type": "Chapter", ...common, ...work, isPartOf: book }
+        : { "@type": BOOKISH[meta.type] ?? "Book", ...common, ...work }
+  return { "@context": "https://schema.org", ...body }
+}
+
+/** The head tags for one page, as one HTML string. `pdfUrl` once its export exists. */
+export function headTags(meta, { pdfUrl = "" } = {}) {
+  const tags = []
+  const m = (name, content) =>
+    content && tags.push(`<meta name="${name}" content="${escAttr(content)}">`)
+  m("citation_title", meta.title)
+  for (const c of meta.creators) {
+    m("citation_author", c.name)
+    if (c.orcid) m("citation_author_orcid", `https://orcid.org/${c.orcid}`)
+  }
+  m("citation_publication_date", meta.published.replace(/-/g, "/"))
+  m("citation_publisher", meta.publisher)
+  m("citation_language", meta.lang)
+  m("citation_keywords", meta.keywords.join("; "))
+  // Zotero's Embedded Metadata translator: citation_book_title makes a page a
+  // book section (a concept page too, an entry in the book); the front page is
+  // typed by DC.type (book, report), and a report needs its institution.
+  if (meta.book) m("citation_book_title", meta.book.title)
+  if (!meta.book && meta.type === "report")
+    m("citation_technical_report_institution", meta.publisher)
+  m("citation_public_url", meta.url)
+  m("citation_pdf_url", pdfUrl)
+  m("citation_doi", meta.doi ?? "")
+  tags.push(`<link rel="schema.DC" href="http://purl.org/dc/elements/1.1/">`)
+  m("DC.title", meta.title)
+  for (const c of meta.creators) m("DC.creator", c.name)
+  m("DC.publisher", meta.publisher)
+  m("DC.date.created", meta.created)
+  m("DC.date.issued", meta.published)
+  m("DC.description", meta.summary)
+  for (const k of meta.keywords) m("DC.subject", k)
+  m("DC.identifier", meta.url)
+  if (meta.doi) m("DC.identifier", `https://doi.org/${meta.doi}`)
+  m("DC.type", meta.type)
+  m("DC.format", meta.format)
+  m("DC.language", meta.lang)
+  m("DC.rights", `${meta.licence.id} (${meta.licence.url}), ${meta.rights}`)
+  tags.push(`<link rel="license" href="${escAttr(meta.licence.url)}">`)
+  tags.push(`<script type="application/ld+json">${scriptJson(jsonLd(meta, { pdfUrl }))}</script>`)
+  return tags.join("")
+}
+
+/** `extra` (head tags) before </head>, once: a page that already has them is left alone. */
+export function addToHead(html, extra, url) {
+  if (!extra || html.includes('<meta name="citation_title"')) return html
+  if (!html.includes("</head>")) throw new Error(`no </head> to put the metadata before (${url}).`)
+  return html.replace("</head>", `${extra}</head>`)
+}
+
+// --- Citations: CSL-JSON from the metadata (builder/citations.mjs formats it) ---
+
+/** "Brandon Sommer" -> { family: "Sommer", given: "Brandon" }; one word stays a literal (an organisation). */
+export const cslName = (name) => {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length < 2) return { literal: name.trim() }
+  // ponytail: the last word is the family name ("Ludwig van Beethoven" -> "Beethoven"),
+  // as cite.ts always did. An author who needs otherwise writes the name inverted
+  // in the frontmatter's object form: `{ name: "van Beethoven, Ludwig" }`.
+  if (name.includes(",")) {
+    const [family, given] = name.split(",", 2).map((s) => s.trim())
+    return { family, given }
+  }
+  return { family: parts.pop(), given: parts.join(" ") }
+}
+
+const dateParts = (d) => (d ? { "date-parts": [d.split("-").map(Number)] } : undefined)
+
+/** One CSL-JSON item: the book, or a page (a chapter of the book). `id` is the citation key. */
+export function cslItem(meta) {
+  const item = {
+    id: meta.url,
+    type: meta.book
+      ? "chapter"
+      : meta.type === "report"
+        ? "report"
+        : meta.type === "book"
+          ? "book"
+          : "article",
+    title: meta.title,
+    author: meta.creators.map((c) => cslName(c.name)),
+    publisher: meta.publisher,
+    issued: dateParts(meta.published),
+    URL: meta.url,
+    language: meta.lang,
+    ...(meta.summary ? { abstract: meta.summary } : {}),
+    ...(meta.keywords.length ? { keyword: meta.keywords.join(", ") } : {}),
+    ...(meta.doi ? { DOI: meta.doi } : {}),
+    ...(meta.book ? { "container-title": meta.book.title } : {}),
+    license: meta.licence.url,
+  }
+  if (!item.issued) delete item.issued
+  return item
 }
 
 // ---------------------------------------------------------------------------

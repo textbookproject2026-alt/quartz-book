@@ -107,6 +107,36 @@ check("the page's head carries index.md's Contents order, for the explorer", () 
   assert.ok(pageHtml().includes(`var ORDER = ${JSON.stringify(order)}`), "no explorer order")
 })
 
+check(
+  "a page's head has its citation metadata and the Cite dialog's data (Zotero: a book section)",
+  () => {
+    const html = pageHtml()
+    const meta = (name) =>
+      [...html.matchAll(new RegExp(`<meta name="${name}" content="([^"]*)">`, "g"))].map(
+        (m) => m[1],
+      )
+    assert.equal(meta("citation_title").length, 1, "one citation_title")
+    assert.ok(meta("citation_author").length >= 1, "no citation_author")
+    assert.match(meta("citation_publication_date")[0] ?? "", /^\d{4}\/\d{2}\/\d{2}$/)
+    assert.ok(
+      meta("citation_book_title").length === 1,
+      "no citation_book_title: Zotero would not see a book section",
+    )
+    for (const dc of ["DC.title", "DC.creator", "DC.date.issued", "DC.rights", "DC.identifier"])
+      assert.ok(meta(dc).length, `no ${dc}`)
+    const ld = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/.exec(html)[1])
+    assert.equal(ld["@type"], page.concept ? "DefinedTerm" : "Chapter")
+    const cite = JSON.parse(
+      /<script type="application\/json" id="tb-cite">(.*?)<\/script>/.exec(html)[1],
+    )
+    assert.deepEqual(Object.keys(cite.styles.chapter).sort(), ["apa", "chicago", "harvard", "mla"])
+    assert.equal(cite.chapter.URL, `https://${book.site.domain}${page.path}`)
+    const front = read("index.html")
+    assert.match(front, /<meta name="DC.type" content="(book|paper|report|article)">/)
+    assert.doesNotMatch(front, /citation_book_title/)
+  },
+)
+
 check("markdown under assets/ isn't published (the authoring app's assets/README.md)", () => {
   const notes = catalog.pages.filter((p) => p.path.startsWith("/assets/"))
   assert.deepEqual(notes, [])
