@@ -927,3 +927,58 @@ test("statistics: the public dashboard, only for a live book", () => {
     "",
   )
 })
+
+test("tableLayout: text tables of up to four columns stack with labels; wide or numeric ones scroll; the link icon stays with its word", async () => {
+  const { tableLayout } = await import("../builder/lib.mjs")
+  const icon =
+    '<svg aria-hidden="true" class="external-icon" viewBox="0 0 512 512"><path d="M0"></path></svg>'
+  const table = (heads, rows) =>
+    `<div class="table-container"><table><thead><tr>${heads.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows
+      .map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table></div>`
+  const guide = table(
+    ["Place", "Address", "What it is for"],
+    [
+      [
+        "The portal",
+        `<a href="https://confused4now.org" class="external external-link">confused4now.org${icon}</a>`,
+        "All the books",
+      ],
+    ],
+  )
+  const out = tableLayout(guide)
+  assert.match(out, /<div class="table-container tb-table-stack"><table role="table">/)
+  assert.match(out, /<td role="cell" data-label="Place">The portal<\/td>/)
+  assert.match(out, /<td role="cell" data-label="What it is for">All the books<\/td>/)
+  assert.match(out, /<th role="columnheader">Address<\/th>/)
+  assert.match(out, /class="external external-link"><span class="tb-nowrap">confused4now\.org<svg/)
+  // No text added: the page's text is the same, so anchors and numbering are too.
+  const text = (h) => h.replace(/<[^>]+>/g, "")
+  assert.equal(text(out), text(guide))
+
+  const wide = table(["A", "B", "C", "D", "E"], [["1", "2", "3", "4", "5"]])
+  assert.match(
+    tableLayout(wide),
+    /<div class="table-container tb-table-scroll" data-scroll tabindex="0" role="region"/,
+  )
+  const numbers = table(
+    ["Year", "Readers"],
+    [
+      ["2025", "1,200"],
+      ["2026", "3,400"],
+    ],
+  )
+  assert.match(tableLayout(numbers), /tb-table-scroll/)
+  const noHead =
+    '<div class="table-container"><table><tbody><tr><td>a</td></tr></tbody></table></div>'
+  assert.match(tableLayout(noHead), /tb-table-scroll/)
+  assert.match(
+    tableLayout(table(["Who", "Note"], [["A &amp; B", 'Says "hi"']])).replace(/\n/g, ""),
+    /data-label="Who">A &amp; B/,
+  )
+  // A two-word link keeps its first word free to wrap.
+  assert.match(
+    tableLayout(`<a href="x" class="external">the author site${icon}</a>`),
+    />the author <span class="tb-nowrap">site<svg/,
+  )
+})

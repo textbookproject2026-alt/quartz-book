@@ -38,6 +38,7 @@ import {
   strayMessage,
   walkFiles,
   setPlatform,
+  tableLayout,
 } from "./lib.mjs"
 import { citeData } from "./citations.mjs"
 import {
@@ -157,6 +158,8 @@ for (const file of walkFiles(outDir)) {
   let html = readFileSync(file, "utf8")
   html = addCanonical(html, facts.domain, url)
   html = orderFolderListing(html, slug, facts.contentsOrder ?? [])
+  // Tables and external links that read on a phone (lib.mjs, tableLayout).
+  html = tableLayout(html)
   const meta = metaBySlug.get(slug)
   if (meta) {
     const relPath = relPathOf.get(slug)

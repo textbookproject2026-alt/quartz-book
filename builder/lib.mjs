@@ -2399,3 +2399,72 @@ export function historyPageMarkdown(history, { repo }) {
     "",
   ].join("\n")
 }
+
+/**
+ * Tables and external links on a phone (batch 2b), at build time and without a
+ * script. Every Markdown table Quartz writes (`<div class="table-container">
+ * <table>`) gets one of two layouts, chosen here and drawn by the extras' CSS at
+ * 640px and under:
+ *
+ *   stacked   a text table of up to four columns: each row a block, each cell
+ *             with its column's header as a small label above it. The label is
+ *             `data-label` on the cell, drawn with CSS `content: attr(data-label)`,
+ *             so no text enters the page (Hypothes.is anchors and paragraph
+ *             numbers see the same text), and ARIA roles keep it a table for
+ *             screen readers once CSS makes it blocks.
+ *   scroll    wider tables, ones mostly of numbers, and ones without a header
+ *             row: the grid kept, in a marked horizontal scroller (`data-scroll`)
+ *             with the first column sticky and a fade at the edge with more.
+ *
+ * And an external link's icon stays with its last word: the last word and the
+ * icon go in a `<span class="tb-nowrap">` (an element, no text).
+ */
+export function tableLayout(html) {
+  const strip = (s) =>
+    s
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  const attr = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")
+  const NUMERIC = /^[\s\d.,%€$£¥+\-–−()×/:]+$/
+  let out = html.replace(
+    /<div class="table-container"><table>([\s\S]*?)<\/table><\/div>/g,
+    (whole, inner) => {
+      const head = /<thead>\s*<tr>([\s\S]*?)<\/tr>\s*<\/thead>/.exec(inner)
+      const headers = head
+        ? [...head[1].matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)].map((m) => strip(m[1]))
+        : []
+      const cells = [...inner.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map((m) => strip(m[1]))
+      const filled = cells.filter(Boolean)
+      const numeric =
+        filled.length && filled.filter((c) => NUMERIC.test(c)).length / filled.length > 0.5
+      const stacked =
+        headers.length >= 1 && headers.length <= 4 && headers.every(Boolean) && !numeric
+      if (!stacked)
+        return `<div class="table-container tb-table-scroll" data-scroll tabindex="0" role="region" aria-label="Table, scrolls sideways"><table>${inner}</table></div>`
+      let body = inner
+        .replace(/<table>/, "")
+        .replace(/<thead>/, '<thead role="rowgroup">')
+        .replace(/<tbody>/, '<tbody role="rowgroup">')
+        .replace(/<tr>/g, '<tr role="row">')
+        .replace(/<th\b([^>]*)>/g, '<th role="columnheader"$1>')
+      body = body.replace(/<tr role="row">([\s\S]*?)<\/tr>/g, (row, rowInner) => {
+        let i = 0
+        return `<tr role="row">${rowInner.replace(/<td\b([^>]*)>/g, (_, rest) => `<td role="cell" data-label="${attr(headers[i++] ?? "")}"${rest}>`)}</tr>`
+      })
+      return `<div class="table-container tb-table-stack"><table role="table">${body}</table></div>`
+    },
+  )
+  // An external link's last word and its icon, never split over two lines.
+  out = out.replace(
+    /(<a\b[^>]*class="external[^"]*"[^>]*>)([\s\S]*?)(<svg\b[^>]*class="external-icon"[\s\S]*?<\/svg>)(<\/a>)/g,
+    (whole, open, text, icon, close) => {
+      if (/<[^>]+>/.test(text)) return whole // formatted link text: left as it is
+      const m = /^([\s\S]*?)(\S+)$/.exec(text)
+      if (!m) return whole
+      return `${open}${m[1]}<span class="tb-nowrap">${m[2]}${icon}</span>${close}`
+    },
+  )
+  return out
+}
