@@ -10,7 +10,12 @@
 // with a warning (a GitHub annotation in Actions), and the site publishes
 // without it. TB_EXPORTS=off skips them all (design previews that don't touch
 // the exports). PANDOC and TYPST name the binaries (default: on the PATH).
-import { execFileSync } from "node:child_process"
+//
+// Fonts: design.yaml's (the pinned edition-integrations'), from the folder
+// export-tools fills (TB_FONTS, default ~/.export-tools/fonts; lib.mjs,
+// EXPORT_FONTS): embedded in the PDF and EPUB, named in the ODT. A family the
+// builder doesn't fetch, or missing files, is the default font with a warning.
+import { execFileSync, spawnSync } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
@@ -20,7 +25,9 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs"
+import { homedir } from "node:os"
 import { join } from "node:path"
+import YAML from "yaml"
 import {
   CATALOG_PATH,
   EXPORT_DIR,
@@ -28,6 +35,11 @@ import {
   EXPORT_MAX_BYTES,
   chapterSlugs,
   cslItem,
+  epubFontCss,
+  exportFonts,
+  odtStyles,
+  typstFontRules,
+  uiTitle,
   exportMeta,
   exportName,
   frontPage,
@@ -147,17 +159,87 @@ function main() {
     if (same) numberBlocks(ast.blocks, true)
     return ast.blocks
   }
-  const doc = (meta, blocks) => ({
-    "pandoc-api-version": apiVersion,
-    meta: exportMeta(meta),
-    blocks,
-  })
+  const doc = (meta, blocks) => {
+    const m = exportMeta(meta)
+    m.title = { t: "MetaInlines", c: uiTitle(fonts, m.title.c) }
+    return { "pandoc-api-version": apiVersion, meta: m, blocks }
+  }
   const front = (meta) => frontPage(meta, { version, apa: formatAll(cslItem(meta)).apa })
 
   mkdirSync(join(outDir, EXPORT_DIR), { recursive: true })
   const made = new Map() // page path ("/" for the book) -> { ext: url path }
+  // The fonts: design.yaml's, as the pinned plugin has it.
+  let designFonts = {}
+  try {
+    const design = join(
+      import.meta.dirname,
+      "..",
+      ".quartz/plugins/edition-integrations/design.yaml",
+    )
+    designFonts = YAML.parse(readFileSync(design, "utf8"))?.fonts ?? {}
+  } catch (err) {
+    warn(`design.yaml can't be read (${err.message}); the downloads use the default fonts.`)
+  }
+  const fonts = exportFonts(
+    designFonts,
+    process.env.TB_FONTS || join(homedir(), ".export-tools/fonts"),
+    existsSync,
+  )
+  fonts.warnings.forEach(warn)
+  const roles = [fonts.text, fonts.ui, fonts.mono].filter(Boolean)
+  console.log(
+    `export: fonts ${["text", "ui", "mono"].map((r) => `${r} ${fonts[r]?.family ?? "default"}`).join(", ")}`,
+  )
   const header = join(workDir, "export-header.typ")
-  writeFileSync(header, TYPST_HEADER)
+  writeFileSync(header, TYPST_HEADER + typstFontRules(fonts))
+  const fontArgs = [
+    ...(fonts.text ? ["-V", `mainfont=${fonts.text.family}`] : []),
+    ...(fonts.mono ? ["-V", `codefont=${fonts.mono.family}`] : []),
+  ]
+  // Typst sees only these folders and its own fonts, never the machine's.
+  const typstFonts = ["--ignore-system-fonts", ...roles.flatMap((r) => ["--font-path", r.dir])]
+  // EPUB: the files embedded, and @font-face after pandoc's own stylesheet. Only
+  // the faces its CSS uses, since each embedded file is in every EPUB: the text
+  // font's regular, italic, bold and bold italic; the headings' (ui) bold and
+  // bold italic; the mono font only where the text has code.
+  const epubFaces = (r, weights) =>
+    r && { ...r, faces: r.faces.filter((f) => weights.includes(f.weight)) }
+  const epubArgs = (json) => {
+    const code = /"t":"(Code|CodeBlock)"/.test(JSON.stringify(json.blocks))
+    const used = {
+      text: epubFaces(fonts.text, [400, 700]),
+      ui: epubFaces(fonts.ui, [700]),
+      mono: code ? epubFaces(fonts.mono, [400, 700]) : null,
+    }
+    const css = join(workDir, `export-epub-${code ? "code" : "text"}.css`)
+    if (!existsSync(css)) writeFileSync(css, `${epubBaseCss}\n${epubFontCss(used)}\n`)
+    const files = [used.text, used.ui, used.mono]
+      .filter(Boolean)
+      .flatMap((r) => r.faces.map((f) => `--epub-embed-font=${f.path}`))
+    return [`--css=${css}`, ...files]
+  }
+  const epubBaseCss = run(PANDOC, ["--print-default-data-file", "epub.css"])
+  // ODT: pandoc's reference document with the families named in its styles.
+  const odtArgs = []
+  if (roles.length)
+    try {
+      const dir = join(workDir, "odt-reference")
+      const ref = join(workDir, "reference.odt")
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(ref, execFileSync(PANDOC, ["--print-default-data-file", "reference.odt"]))
+      execFileSync("unzip", ["-q", "-o", ref, "-d", dir])
+      rmSync(ref)
+      const styles = join(dir, "styles.xml")
+      writeFileSync(styles, odtStyles(readFileSync(styles, "utf8"), fonts))
+      // mimetype first and stored, as ODF requires.
+      execFileSync("zip", ["-q", "-X", "-0", ref, "mimetype"], { cwd: dir })
+      execFileSync("zip", ["-q", "-X", "-r", ref, ".", "-x", "mimetype"], { cwd: dir })
+      odtArgs.push(`--reference-doc=${ref}`)
+    } catch (err) {
+      warn(
+        `the ODT's reference document couldn't be made (${err.message}); the ODT names the default fonts.`,
+      )
+    }
 
   const write = (key, chapter, ext, make) => {
     const name = exportName(facts.slug, chapter, date, ext)
@@ -190,11 +272,38 @@ function main() {
         typ,
         run(
           PANDOC,
-          ["-f", "json", "-t", "typst", "-s", "--wrap=none", "-V", "papersize=a4", "-H", header],
+          [
+            "-f",
+            "json",
+            "-t",
+            "typst",
+            "-s",
+            "--wrap=none",
+            "-V",
+            "papersize=a4",
+            ...fontArgs,
+            "-H",
+            header,
+          ],
           JSON.stringify(json),
         ).replace("#outline-here", toc ? "#outline(depth: 2)\n#pagebreak()" : ""),
       )
-      run(TYPST, ["compile", "--root", content, typ, out])
+      const typst = spawnSync(TYPST, ["compile", "--root", content, ...typstFonts, typ, out], {
+        encoding: "utf8",
+        timeout: 120_000,
+      })
+      if (typst.status !== 0)
+        throw Object.assign(new Error("typst failed"), { stderr: typst.stderr })
+      // A family Typst can't find falls back silently but for this warning: say so.
+      const unknown = [
+        ...new Set(
+          [...(typst.stderr ?? "").matchAll(/unknown font family: (\S+)/g)].map((m) => m[1]),
+        ),
+      ]
+      if (unknown.length)
+        warn(
+          `${out.split("/").pop()}: Typst didn't find ${unknown.join(", ")}; it used its default.`,
+        )
     } finally {
       rmSync(typ, { force: true })
     }
@@ -228,7 +337,7 @@ function main() {
     const { blocks } = bodies.get(p.path)
     const json = doc(p.metadata, [...front(p.metadata), ...blocks])
     write(p.path, names.get(p.slug), "pdf", pdf(json, false))
-    write(p.path, names.get(p.slug), "epub", pandocTo("epub3", json))
+    write(p.path, names.get(p.slug), "epub", pandocTo("epub3", json, epubArgs(json)))
   }
 
   // The whole book: index.md's own text (no Contents list), then every page.
@@ -256,8 +365,8 @@ function main() {
   const outline = { t: "RawBlock", c: ["typst", "#outline-here"] }
   const bookJson = doc(book, [...front(book), outline, ...introBlocks, ...chapterBlocks])
   write("/", "", "pdf", pdf(bookJson, true))
-  write("/", "", "epub", pandocTo("epub3", bookJson, ["--toc"]))
-  write("/", "", "odt", pandocTo("odt", bookJson, ["--toc"]))
+  write("/", "", "epub", pandocTo("epub3", bookJson, ["--toc", ...epubArgs(bookJson)]))
+  write("/", "", "odt", pandocTo("odt", bookJson, ["--toc", ...odtArgs]))
 
   // Dateless aliases, as redirects to today's files.
   const aliases = []

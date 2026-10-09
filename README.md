@@ -309,7 +309,11 @@ Core, and schema.org JSON-LD (`Book` on the front page, `Chapter` in the `Book`,
 `DefinedTerm` on a concept page). Beside it, `<script id="tb-cite">` holds the page's
 and the book's CSL-JSON and their citations in APA 7, Chicago author-date, MLA and
 Harvard (Cite Them Right), formatted at build time by `builder/citations.mjs` with
-citation-js and the styles in `builder/csl/`, for edit-on-github's Cite dialog. An
+citation-js and the styles in `builder/csl/`, for edit-on-github's Cite dialog.
+The downloads (below) use the site's fonts: the families design.yaml names, fetched
+by `.github/actions/export-tools` (`fetch-fonts.sh`) from their OFL upstream releases,
+pinned and sha256-checked, each with its licence; a family the builder doesn't fetch
+(`EXPORT_FONTS` in `lib.mjs`) falls back to the default font with a warning. An
 author writes, for example:
 
 ```yaml
@@ -338,17 +342,18 @@ the page's `citation_pdf_url`.
   `<img>` widths kept; callouts as titled quotes; `%%comments%%` dropped) → pandoc
   (`commonmark_x`) → Typst for the PDF, pandoc itself for EPUB and ODT. Each starts
   with a front page: title, authors, publisher, published date, version (the short
-  commit), address, licence and the APA citation. Typst's own fonts (Libertinus
-  Serif): design.yaml's Source Serif 4 and Source Sans 3 come from Google Fonts at
-  reading time, not as files the builder has.
+  commit), address, licence and the APA citation. Fonts are design.yaml's (above):
+  embedded in the PDF (Typst sees only them, `--ignore-system-fonts`) and the EPUB
+  (only the faces its CSS uses), named in the ODT, which can't carry them.
 - **Paragraph numbers** are in the PDF's margin, by the site's rule, only where the
   export numbers exactly as many paragraphs as the built page; a page that differs
   gets none, with a warning.
 - **Never fails the build.** A file that can't be made, or is over 20 MiB, is left
   out with a `::warning::`, and the site publishes without it.
-- **Tools:** pandoc 3.11 (the platform's pin) and Typst 0.15.1, with checksums, in
-  `.github/actions/export-tools`. Locally: `PANDOC=… TYPST=…`, or on the PATH; without
-  them a build has no downloads and says so.
+- **Tools:** pandoc 3.11 (the platform's pin), Typst 0.15.1 and the fonts, with
+  checksums, in `.github/actions/export-tools`. Locally: `PANDOC=… TYPST=…`, or on the
+  PATH, and `TB_FONTS=<dir>` filled by `fetch-fonts.sh <dir>`; without them a build
+  has no downloads, or the default fonts, and says so.
 - **Design previews** make downloads only when the pull request touches
   `builder/export.mjs` or the tools' pins; otherwise `TB_EXPORTS=off`.
 
