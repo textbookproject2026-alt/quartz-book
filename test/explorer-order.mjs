@@ -10,7 +10,7 @@
 // Contents entry under chapters/. It then opens /chapters/ and asserts the
 // same of the folder page's listing (builder/lib.mjs, orderFolderListing).
 // Last, on the front page: every page the explorer shows (but the builder's
-// how-to-comment) is in the rendered Contents, and in the same order
+// how-to-comment and Book history) is in the rendered Contents, and in the same order
 // (completeContents adds any index.md's own list misses, decision of 8 Oct).
 // Browser: `npx playwright install chromium` (CI), or set
 // PW_CHROMIUM_CHANNEL=chrome to use an installed Chrome.
@@ -18,7 +18,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { chromium } from "playwright-core"
-import { contentsOrder } from "../builder/lib.mjs"
+import { contentsOrder, HISTORY_PAGE } from "../builder/lib.mjs"
 
 const [base, checkout] = process.argv.slice(2)
 if (!base || !checkout) {
@@ -66,7 +66,7 @@ try {
     )
   // Every page link is in the explorer's markup, folded folders included; folder links end in "/".
   const explorer = (await page.$$eval(".explorer-ul li > a", path)).filter(
-    (p) => p !== "how-to-comment" && !p.endsWith("/"),
+    (p) => p !== "how-to-comment" && p !== HISTORY_PAGE && !p.endsWith("/"),
   )
   // Each item's first link, from the lists between the Contents heading and the next heading.
   const contents = path(

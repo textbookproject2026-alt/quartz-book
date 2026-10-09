@@ -9,6 +9,9 @@ import {
   CATALOG_PATH,
   HISTORY_DIR,
   HOW_TO_COMMENT,
+  HISTORY_PAGE,
+  HISTORY_PATH,
+  slugUrl,
   MARKER_PATH,
   buildCatalog,
   NOINDEX_HEADERS,
@@ -52,7 +55,9 @@ const write = (path, text) => {
 const index = JSON.parse(readFileSync(join(outDir, "static/contentIndex.json"), "utf8"))
 // Folder and tag listings have a filePath too, but no file: Publish never had them.
 const pages = Object.entries(index)
-  .filter(([, v]) => v.filePath && v.filePath !== `${HOW_TO_COMMENT}.md`)
+  .filter(
+    ([, v]) => v.filePath && ![`${HOW_TO_COMMENT}.md`, `${HISTORY_PAGE}.md`].includes(v.filePath),
+  )
   .filter(([, v]) => existsSync(join(workDir, "content", v.filePath)))
   .map(([slug, v]) => ({ relPath: v.filePath, slug }))
 if (pages.length === 0) throw new Error("Quartz's content index lists no pages.")
@@ -174,6 +179,14 @@ for (const file of walkFiles(outDir)) {
   }
   writeFileSync(file, html)
 }
+
+// The book's version history (prepare.mjs; lib.mjs, "Version history"), with each
+// page's address as Quartz made it.
+const historyData = JSON.parse(readFileSync(join(workDir, "history-data.json"), "utf8"))
+const slugOfRel = new Map(pages.map((p) => [p.relPath, p.slug]))
+for (const p of historyData.pages)
+  if (slugOfRel.has(p.source)) p.path = slugUrl(slugOfRel.get(p.source))
+write(HISTORY_PATH, JSON.stringify(historyData) + "\n")
 
 // Each page's revision list, for the History panel.
 for (const { relPath, slug } of pages)

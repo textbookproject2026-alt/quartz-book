@@ -692,7 +692,7 @@ test("the byline, the chapter's contributors and the front page's credits: escap
   assert.equal(creditsFootHtml([], "/x"), "")
   assert.equal(
     creditsBlockHtml({ creators: [{ name: "A" }], editors: [] }, 1, "/community/contributors"),
-    '<div class="tb-credits-block" role="note" aria-label="Credits"><p><span class="tb-role" data-role="author">Author</span> A</p><p><a href="/community/contributors"><span class="tb-role" data-role="contributor">Contributor</span> 1 person has contributed: see who, and how credit works</a></p></div>',
+    '<div class="tb-credits-block" role="note" aria-label="Credits"><p><span class="tb-role" data-role="author">Author</span> A</p><p><a href="/community/contributors"><span class="tb-role" data-role="contributor">Contributor</span> 1 person has contributed: see who, and how credit works</a></p><p><a href="/history">Book history: what has changed, and what is being edited</a></p></div>',
   )
   const html =
     '<h1 class="article-title">T</h1><p class="content-meta">x</p><article><p>Text</p></article><hr/>'

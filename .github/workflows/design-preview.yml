@@ -147,6 +147,11 @@ jobs:
           cd "$RUNNER_TEMP/book"
           git -c credential.helper= fetch --quiet "https://github.com/$REPO.git" "$commit"
           git checkout --quiet --detach FETCH_HEAD
+          # The book's version history (batch 2a): its branches (published and being
+          # edited) and its releases (v* tags), beside the commit being built.
+          git -c credential.helper= fetch --quiet "https://github.com/$REPO.git" \
+            "+refs/heads/*:refs/remotes/origin/*" "+refs/tags/v*:refs/tags/v*" \
+            || echo "::warning::the book's branches and tags couldn't be fetched; the history page shows what the commit alone has."
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Build, as a noindex preview

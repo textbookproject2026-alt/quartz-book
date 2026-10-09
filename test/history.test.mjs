@@ -7,6 +7,15 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, test } from "node:test"
 import {
+  historyData,
+  historyPageMarkdown,
+  historySummary,
+  markerCurrent,
+  otherBranch,
+  roleOf,
+  swimlaneSvg,
+} from "../builder/lib.mjs"
+import {
   COMMIT_INFO_FORMAT,
   outputAllowed,
   parseCommitInfo,
@@ -191,4 +200,196 @@ test("revisionAuthor: never the App; a bot's human co-authors; plain names as gi
 test("history files are builder output, and only JSON there", () => {
   assert.equal(outputAllowed(".well-known/history/chapters/one.json"), true)
   assert.equal(outputAllowed(".well-known/history/chapters/one.html"), false)
+})
+
+// --- The version history (batch 2a, Part B) ---------------------------------------
+
+test("history summaries: the edit summary in full, PR titles' heads and tails off, stock messages in words", () => {
+  assert.deepEqual(historySummary("Update chapter-03.md: Fixed the spelling of receive (#7)"), {
+    summary: "Fixed the spelling of receive",
+    pr: 7,
+  })
+  assert.deepEqual(historySummary("Edit ¶4 of chapter-03.md: Moved a sentence"), {
+    summary: "Moved a sentence",
+    pr: null,
+  })
+  const cut = "Fixed the spelling of receive in the second paragraph, because the old…"
+  assert.equal(
+    historySummary(
+      cut,
+      `${cut}\n\nFixed the spelling of receive in the second paragraph, because the old spelling was wrong.\n\nMore.`,
+    ).summary,
+    "Fixed the spelling of receive in the second paragraph, because the old spelling was wrong.",
+  )
+  assert.equal(
+    historySummary("chore(community): refresh contributors page (#22)").summary,
+    "refresh contributors page",
+  )
+  assert.equal(historySummary("Edit ¶12 of introduction.md").summary, "Paragraph 12 changed")
+  assert.equal(historySummary("Update introduction.md").summary, "Text changed")
+  assert.equal(historySummary("Create chapter-01.md").summary, "First published")
+  assert.equal(historySummary("").summary, "Changed")
+})
+
+test("roles in the history: the page's (or book's) authors and editors by name or login, else a contributor, automation none", () => {
+  const people = {
+    creators: [{ name: "Ann Author", github: "ann-a" }],
+    editors: [{ name: "Ed Itor" }],
+  }
+  assert.equal(roleOf({ who: "ann-a" }, people), "author")
+  assert.equal(roleOf({ who: "Ed Itor" }, people), "editor")
+  assert.equal(roleOf({ who: "gobi10k" }, people), "contributor")
+  assert.equal(roleOf({ who: "automation", automation: true }, people), null)
+})
+
+const histFiles = {
+  "chapters/c.md": {
+    published: [
+      {
+        sha: "b".repeat(40),
+        date: "2026-10-08T10:00:00+02:00",
+        who: "ann-a",
+        message: "Update c.md: Tidy (#3)",
+        body: "",
+      },
+      {
+        sha: "a".repeat(40),
+        date: "2026-09-01T10:00:00Z",
+        who: "automation",
+        automation: true,
+        message: "Create c.md",
+        body: "",
+        path: "chapters/old c.md",
+      },
+      {
+        sha: "d".repeat(40),
+        date: "2026-08-01T10:00:00Z",
+        who: "ann-a",
+        message: "Update c.md",
+        body: "",
+        path: "chapters/c.md",
+      },
+    ],
+    drafts: [
+      {
+        sha: "c".repeat(40),
+        date: "2026-10-09T10:00:00Z",
+        who: "gobi10k",
+        message: "Edit ¶2 of c.md: A clearer sentence",
+        body: "",
+      },
+    ],
+    releases: { "v2026.1": "a".repeat(40) },
+  },
+}
+const histPages = {
+  "chapters/c.md": {
+    url: "/chapters/c",
+    title: "C <one>",
+    people: { creators: [{ name: "Ann", github: "ann-a" }], editors: [] },
+  },
+}
+const histReleases = [{ tag: "v2026.1", date: "2026-09-15T12:00:00Z", commit: "a".repeat(40) }]
+
+test("history.json: per page, published and being edited, with roles and summaries; releases; deterministic", () => {
+  const h = historyData({ files: histFiles, pages: histPages, releases: histReleases })
+  assert.deepEqual(h, {
+    version: 1,
+    releases: [{ tag: "v2026.1", date: "2026-09-15" }],
+    pages: [
+      {
+        path: "/chapters/c",
+        source: "chapters/c.md",
+        title: "C <one>",
+        published: [
+          {
+            sha: "b".repeat(40),
+            date: "2026-10-08",
+            who: "ann-a",
+            role: "author",
+            summary: "Tidy",
+            pr: 3,
+          },
+          {
+            sha: "a".repeat(40),
+            date: "2026-09-01",
+            who: "the platform",
+            role: null,
+            summary: "First published",
+            path: "chapters/old c.md",
+          },
+          {
+            sha: "d".repeat(40),
+            date: "2026-08-01",
+            who: "ann-a",
+            role: "author",
+            summary: "Text changed",
+          },
+        ],
+        drafts: [
+          {
+            sha: "c".repeat(40),
+            date: "2026-10-09",
+            who: "gobi10k",
+            role: "contributor",
+            summary: "A clearer sentence",
+          },
+        ],
+        releases: { "v2026.1": "a".repeat(40) },
+      },
+    ],
+  })
+  assert.deepEqual(historyData({ files: histFiles, pages: histPages, releases: histReleases }), h)
+})
+
+test("the swimlane: a static SVG, lanes, a dot per change with its summary, releases as rules; escaped", () => {
+  const h = historyData({ files: histFiles, pages: histPages, releases: histReleases })
+  const svg = swimlaneSvg(h)
+  assert.match(svg, /^<svg class="tb-swimlane" viewBox="0 0 760 \d+" role="img"/)
+  for (const lane of ["Proposed", "Being edited", "Published"])
+    assert.ok(svg.includes(`>${lane}</text>`))
+  assert.equal((svg.match(/<circle class="tb-swim-dot" data-lane="2"/g) ?? []).length, 3)
+  assert.equal((svg.match(/<circle class="tb-swim-dot" data-lane="1"/g) ?? []).length, 1)
+  assert.ok(svg.includes('<line class="tb-swim-release"'))
+  assert.ok(svg.includes(">2026.1</text>"))
+  assert.ok(svg.includes("<title>2026-10-09 · C &lt;one&gt;: A clearer sentence (gobi10k)</title>"))
+  assert.ok(!svg.includes("<script"))
+  const md = historyPageMarkdown(h, { repo: "o/b" })
+  assert.match(md, /^---\ntitle: Book history\ntbBuilderPage: true\n/)
+  assert.ok(md.includes("<div data-tb-book-history></div>"))
+  assert.ok(
+    md.includes(
+      "- **2026.1**, 2026-09-15: [the book as it was](https://github.com/o/b/tree/v2026.1)",
+    ),
+  )
+  assert.ok(md.includes("- 2026-10-08, [C &lt;one&gt;](/chapters/c): Tidy (ann-a)"))
+})
+
+test("the marker names the other branch's head: a build is stale when either branch moves", () => {
+  const book = { content: { live_branch: "main", drafts_branch: "drafts" } }
+  assert.equal(otherBranch(book, "main"), "drafts")
+  assert.equal(otherBranch(book, "drafts"), "main")
+  assert.equal(otherBranch(book, "x"), null)
+  const want = {
+    slug: "b",
+    branch: "main",
+    bookCommit: "1",
+    otherCommit: "2",
+    registryDigest: "d",
+    builderCommit: "z",
+  }
+  const served = {
+    slug: "b",
+    branch: "main",
+    book_commit: "1",
+    other_commit: "2",
+    registry_digest: "d",
+    builder_commit: "z",
+  }
+  assert.ok(markerCurrent(served, want))
+  assert.ok(!markerCurrent({ ...served, other_commit: "3" }, want))
+  assert.ok(
+    !markerCurrent({ ...served, other_commit: undefined }, want),
+    "a marker from before batch 2a rebuilds once",
+  )
 })
