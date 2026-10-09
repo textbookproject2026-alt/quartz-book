@@ -2,6 +2,13 @@
 # with their release checksums, cached by version. pandoc is the platform's one
 # pin (book-requests' PANDOC_VERSION). To move either: change the version and
 # its sha256 here, together.
+#
+# And the fonts the downloads embed (SIL OFL; builder/lib.mjs EXPORT_FONTS):
+# Source Serif 4, Source Sans 3 and JetBrains Mono, the static regular, italic,
+# semibold and bold faces of each from its upstream release, each folder with
+# its licence, in ~/.export-tools/fonts/<family>/. A new family in design.yaml
+# needs a block here and an EXPORT_FONTS entry; until then the downloads use
+# the default font, with a warning.
 name: export tools
 description: pandoc and Typst at the builder's pinned versions, on the PATH.
 inputs:
@@ -21,12 +28,13 @@ runs:
           echo "pandoc_sha=37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6"
           echo "typst=0.15.1"
           echo "typst_sha=a6d077d0a95eed5a2eba715b2dae06be954f624ccbf85758a03f389ded33118c"
+          echo "fonts=serif-4.005R_sans-3.052R_mono-2.304"
         } >> "$GITHUB_OUTPUT"
     - id: cache
       uses: actions/cache/restore@v5
       with:
         path: ~/.export-tools
-        key: export-tools-${{ runner.os }}-pandoc-${{ steps.pins.outputs.pandoc }}-typst-${{ steps.pins.outputs.typst }}
+        key: export-tools-${{ runner.os }}-pandoc-${{ steps.pins.outputs.pandoc }}-typst-${{ steps.pins.outputs.typst }}-fonts-${{ steps.pins.outputs.fonts }}
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
@@ -44,13 +52,15 @@ runs:
         curl -sfLo typst.tar.xz "https://github.com/typst/typst/releases/download/v$TYPST/typst-x86_64-unknown-linux-musl.tar.xz"
         echo "$TYPST_SHA  typst.tar.xz" | sha256sum -c -
         tar xJf typst.tar.xz && mv typst-x86_64-unknown-linux-musl/typst ~/.export-tools/bin/
+        "$GITHUB_ACTION_PATH/fetch-fonts.sh" ~/.export-tools/fonts
     - if: inputs.save == 'true' && steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v5
       with:
         path: ~/.export-tools
-        key: export-tools-${{ runner.os }}-pandoc-${{ steps.pins.outputs.pandoc }}-typst-${{ steps.pins.outputs.typst }}
+        key: export-tools-${{ runner.os }}-pandoc-${{ steps.pins.outputs.pandoc }}-typst-${{ steps.pins.outputs.typst }}-fonts-${{ steps.pins.outputs.fonts }}
     - shell: bash
       run: |
         echo "$HOME/.export-tools/bin" >> "$GITHUB_PATH"
         "$HOME/.export-tools/bin/pandoc" --version | head -1
         "$HOME/.export-tools/bin/typst" --version
+        ls ~/.export-tools/fonts/*

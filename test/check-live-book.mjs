@@ -12,6 +12,8 @@ import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
+import { inflateSync } from "node:zlib"
+import YAML from "yaml"
 import { REGISTRY_URL, bookContents, contentsOrder } from "../builder/lib.mjs"
 
 const registry = await (await fetch(REGISTRY_URL)).json()
@@ -164,6 +166,45 @@ check(
       read("_redirects").includes(`${alias} ${data.book.pdf} 302`),
       "no dateless alias for the book's PDF",
     )
+  },
+)
+
+check(
+  "the chapter's PDF embeds design.yaml's text and ui fonts (export-tools), not a fallback",
+  () => {
+    const data = JSON.parse(
+      /<script type="application\/json" id="tb-downloads">(.*?)<\/script>/.exec(pageHtml())[1],
+    )
+    const pdf = readFileSync(join(out, data.chapter.pdf.slice(1)))
+    // Font names, in the file and in its compressed streams.
+    const names = new Set()
+    const scan = (buf) => {
+      for (const m of buf.toString("latin1").matchAll(/\/BaseFont\s*\/[A-Z]{6}\+([A-Za-z0-9-]+)/g))
+        names.add(m[1])
+    }
+    scan(pdf)
+    const text = pdf.toString("latin1")
+    for (const m of text.matchAll(/stream\r?\n/g)) {
+      const end = text.indexOf("endstream", m.index)
+      try {
+        scan(inflateSync(pdf.subarray(m.index + m[0].length, end)))
+      } catch {
+        /* not a deflated stream */
+      }
+    }
+    const design = YAML.parse(
+      readFileSync(
+        new URL("../.quartz/plugins/edition-integrations/design.yaml", import.meta.url),
+        "utf8",
+      ),
+    ).fonts
+    for (const family of [design.text, design.ui]) {
+      const ps = family.replace(/\s+/g, "")
+      assert.ok(
+        [...names].some((n) => n.startsWith(ps)),
+        `${family} isn't embedded; the PDF has ${[...names].join(", ")}`,
+      )
+    }
   },
 )
 

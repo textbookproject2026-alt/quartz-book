@@ -1819,3 +1819,123 @@ export const exportMeta = (meta) => {
     lang: { t: "MetaString", c: meta.lang },
   }
 }
+
+// --- The exports' fonts: design.yaml's families, embedded --------------------
+// The families the builder knows how to fetch (SIL OFL, from their upstream
+// releases, pinned in .github/actions/export-tools), and each one's static
+// files by weight and style. design.yaml names the families; a family not
+// here, or whose files aren't there, falls back to Typst's and the readers'
+// defaults with a warning.
+
+export const EXPORT_FONTS = {
+  "Source Serif 4": { dir: "source-serif-4", generic: "serif", stem: "SourceSerif4", ext: "otf" },
+  "Source Sans 3": { dir: "source-sans-3", generic: "sans-serif", stem: "SourceSans3", ext: "otf" },
+  "JetBrains Mono": {
+    dir: "jetbrains-mono",
+    generic: "monospace",
+    stem: "JetBrainsMono",
+    ext: "ttf",
+  },
+}
+const FACES = [
+  [400, "normal", { otf: "Regular", ttf: "Regular" }],
+  [400, "italic", { otf: "It", ttf: "Italic" }],
+  [600, "normal", { otf: "Semibold", ttf: "SemiBold" }],
+  [600, "italic", { otf: "SemiboldIt", ttf: "SemiBoldItalic" }],
+  [700, "normal", { otf: "Bold", ttf: "Bold" }],
+  [700, "italic", { otf: "BoldIt", ttf: "BoldItalic" }],
+]
+
+/**
+ * The exports' fonts from design.yaml's `fonts` (text, ui, mono), under
+ * `root` (one folder per family). `exists(path)` checks a file. Each role is
+ * { family, dir, generic, faces: [{ weight, style, path }] } or null, with a
+ * warning saying why.
+ */
+export function exportFonts(designFonts = {}, root, exists) {
+  const warnings = []
+  const role = (name) => {
+    const family = String(designFonts?.[name] ?? "").trim()
+    if (!family) return null
+    const known = EXPORT_FONTS[family]
+    if (!known) {
+      warnings.push(
+        `design.yaml's ${name} font "${family}" is not one the builder fetches (${Object.keys(EXPORT_FONTS).join(", ")}); the downloads use the default.`,
+      )
+      return null
+    }
+    const dir = `${root}/${known.dir}`
+    const faces = FACES.map(([weight, style, names]) => ({
+      weight,
+      style,
+      path: `${dir}/${known.stem}-${names[known.ext]}.${known.ext}`,
+    }))
+    const missing = faces.filter((f) => !exists(f.path))
+    if (missing.length) {
+      warnings.push(
+        `${family}'s files are missing (${missing.map((f) => f.path.split("/").pop()).join(", ")}); the downloads use the default for the ${name} font.`,
+      )
+      return null
+    }
+    return { family, dir, generic: known.generic, faces }
+  }
+  return { text: role("text"), ui: role("ui"), mono: role("mono"), warnings }
+}
+
+const cssString = (s) => `"${s.replace(/["\\]/g, "\\$&")}"`
+
+/** The EPUB's font CSS: @font-face for each embedded file (pandoc puts them in fonts/), then the roles. */
+export function epubFontCss(fonts) {
+  const roles = [fonts.text, fonts.ui, fonts.mono].filter(Boolean)
+  const faces = roles.flatMap((r) =>
+    r.faces.map(
+      (f) =>
+        `@font-face { font-family: ${cssString(r.family)}; font-weight: ${f.weight}; font-style: ${f.style}; src: url("../fonts/${f.path.split("/").pop()}"); }`,
+    ),
+  )
+  const use = (r, sel) =>
+    r ? [`${sel} { font-family: ${cssString(r.family)}, ${r.generic}; }`] : []
+  return [
+    ...faces,
+    ...use(fonts.text, "body"),
+    ...use(fonts.ui, "h1, h2, h3, h4, h5, h6, .title, .subtitle, header"),
+    ...use(fonts.mono, "code, pre, kbd, samp"),
+  ].join("\n")
+}
+
+/** Typst's preamble for the roles: headings in the ui font (the body and code are pandoc's mainfont/codefont). */
+export const typstFontRules = (fonts) =>
+  fonts.ui ? `#show heading: set text(font: ${JSON.stringify(fonts.ui.family)})\n` : ""
+
+/** Text in the ui font, for pandoc's title (Typst raw inside its metadata). */
+export const uiTitle = (fonts, inlines) =>
+  fonts.ui
+    ? [
+        { t: "RawInline", c: ["typst", `#text(font: ${JSON.stringify(fonts.ui.family)})[`] },
+        ...inlines,
+        { t: "RawInline", c: ["typst", "]"] },
+      ]
+    : inlines
+
+/**
+ * pandoc's default ODT reference styles with design.yaml's families: its
+ * serif (Times New Roman) the text font, its sans (Arial, the headings) the ui
+ * font, its mono (Courier New) the code font. ODT names fonts, it can't carry
+ * them: a reader without them installed sees their own fallback.
+ */
+export function odtStyles(xml, fonts) {
+  let out = xml
+  for (const [from, role] of [
+    ["Times New Roman", fonts.text],
+    ["Arial", fonts.ui],
+    ["Courier New", fonts.mono],
+  ]) {
+    if (!role) continue
+    const to = role.family.replace(/[&<>"']/g, "")
+    out = out
+      .replaceAll(`"${from}"`, `"${to}"`)
+      .replaceAll(`"'${from}'"`, `"'${to}'"`)
+      .replaceAll(`"&apos;${from}&apos;"`, `"&apos;${to}&apos;"`)
+  }
+  return out
+}

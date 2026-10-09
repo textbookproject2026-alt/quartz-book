@@ -7,16 +7,21 @@ import { test } from "node:test"
 import {
   bookMetadata,
   chapterSlugs,
+  epubFontCss,
+  exportFonts,
   exportName,
   frontPage,
   headingAnchor,
   licenceName,
   linkResolver,
   numberBlocks,
+  odtStyles,
   outputAllowed,
   preprocessMarkdown,
   sectionOf,
   splitTitle,
+  typstFontRules,
+  uiTitle,
   withoutContents,
 } from "../builder/lib.mjs"
 
@@ -234,4 +239,77 @@ test("the front page: publisher, date, version, address, licence, APA", () => {
   assert.ok(div.c[1][5].c.some((i) => i.t === "Emph"))
   assert.deepEqual(brk, { t: "RawBlock", c: ["typst", "#pagebreak()"] })
   assert.equal(licenceName("CC-BY-NC-SA-4.0"), "CC BY-NC-SA 4.0")
+})
+
+test("fonts: design.yaml's families when the builder fetches them and their files are there; else the default, said", () => {
+  const all = () => true
+  const f = exportFonts(
+    { text: "Source Serif 4", ui: "Source Sans 3", mono: "JetBrains Mono" },
+    "/fonts",
+    all,
+  )
+  assert.deepEqual(f.warnings, [])
+  assert.equal(f.text.dir, "/fonts/source-serif-4")
+  assert.deepEqual(
+    f.text.faces.map((x) => x.path.split("/").pop()),
+    [
+      "SourceSerif4-Regular.otf",
+      "SourceSerif4-It.otf",
+      "SourceSerif4-Semibold.otf",
+      "SourceSerif4-SemiboldIt.otf",
+      "SourceSerif4-Bold.otf",
+      "SourceSerif4-BoldIt.otf",
+    ],
+  )
+  assert.equal(f.mono.faces[3].path, "/fonts/jetbrains-mono/JetBrainsMono-SemiBoldItalic.ttf")
+  const odd = exportFonts(
+    { text: "Comic Sans", ui: "Source Sans 3" },
+    "/fonts",
+    (p) => !p.includes("SourceSans3-Bold.otf"),
+  )
+  assert.equal(odd.text, null)
+  assert.equal(odd.ui, null)
+  assert.equal(odd.mono, null)
+  assert.match(odd.warnings[0], /"Comic Sans" is not one the builder fetches/)
+  assert.match(odd.warnings[1], /Source Sans 3's files are missing \(SourceSans3-Bold\.otf\)/)
+  assert.deepEqual(exportFonts(undefined, "/fonts", all), {
+    text: null,
+    ui: null,
+    mono: null,
+    warnings: [],
+  })
+})
+
+test("fonts in each format: Typst's headings and title in the ui font, EPUB's @font-face, ODT's named families", () => {
+  const f = exportFonts(
+    { text: "Source Serif 4", ui: "Source Sans 3", mono: "JetBrains Mono" },
+    "/fonts",
+    () => true,
+  )
+  assert.equal(typstFontRules(f), '#show heading: set text(font: "Source Sans 3")\n')
+  assert.equal(typstFontRules({}), "")
+  const title = uiTitle(f, [{ t: "Str", c: "T" }])
+  assert.deepEqual(
+    title.map((i) => i.c[1] ?? i.c),
+    ['#text(font: "Source Sans 3")[', "T", "]"],
+  )
+  const css = epubFontCss(f)
+  assert.ok(
+    css.includes(
+      '@font-face { font-family: "Source Serif 4"; font-weight: 600; font-style: italic; src: url("../fonts/SourceSerif4-SemiboldIt.otf"); }',
+    ),
+  )
+  assert.ok(css.includes('body { font-family: "Source Serif 4", serif; }'))
+  assert.ok(
+    css.includes(
+      'h1, h2, h3, h4, h5, h6, .title, .subtitle, header { font-family: "Source Sans 3", sans-serif; }',
+    ),
+  )
+  assert.ok(css.includes('code, pre, kbd, samp { font-family: "JetBrains Mono", monospace; }'))
+  const xml = `<style:font-face style:name="Times New Roman" svg:font-family="'Times New Roman'"/><style:font-face style:name="Arial" svg:font-family="Arial"/><s fo:font-name="Courier New" svg:font-family="&apos;Courier New&apos;"/>`
+  assert.equal(
+    odtStyles(xml, f),
+    `<style:font-face style:name="Source Serif 4" svg:font-family="'Source Serif 4'"/><style:font-face style:name="Source Sans 3" svg:font-family="Source Sans 3"/><s fo:font-name="JetBrains Mono" svg:font-family="&apos;JetBrains Mono&apos;"/>`,
+  )
+  assert.equal(odtStyles(xml, { text: null, ui: null, mono: null }), xml)
 })
