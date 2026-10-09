@@ -1,0 +1,9 @@
+{
+  "name": "quartz-book-automation",
+  "private": true,
+  "description": "The book automation scripts' one dependency (frontmatter and credit-overrides.yml). The reusable workflows fetch automation/ alone and run npm ci here.",
+  "type": "module",
+  "dependencies": {
+    "yaml": "2.8.2"
+  }
+}

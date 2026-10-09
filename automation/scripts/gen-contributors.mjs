@@ -1,30 +1,39 @@
 #!/usr/bin/env node
 // automation/scripts/gen-contributors.mjs (quartz-book)
 //
-// Regenerates a book's community/contributors.md from the book repository's own
-// commit history and writes it back into the book's checkout. It runs from the
-// platform's reusable workflow (.github/workflows/book-community-page.yml), with
-// the book checked out as the working directory (or BOOK_ROOT).
+// Regenerates a book's credit ledger, community/credits.json, and its
+// contributors page, community/contributors.md, and writes both into the book's
+// checkout. It runs from the platform's reusable workflow
+// (.github/workflows/book-community-page.yml), with the book checked out as the
+// working directory (or BOOK_ROOT).
 //
-// Everything on the page is derived from `git log` in the local clone, and the
-// book's title, maintainer, licence and the platform's automation accounts from
-// the registry (lib/registry.mjs). No GitHub API call is made: the API needs a token, rate-limits, and reports
-// *account* activity (which counts merges and web-UI commits nobody wrote),
-// whereas the commit history is the record of who actually put words in the
-// book. It also means this runs identically on a laptop and in Actions.
+// Who is credited, and for what (lib/credits.mjs has the policy):
+//   - authors and editors, from the frontmatter (index.md for the book, a
+//     chapter's own for that chapter);
+//   - contributors, from three sources merged per person: the commits (git log,
+//     mailmap-aware, bots and the registry's automation accounts left out), the
+//     merged proposed-edit pull requests, and the section-note / suggested-edit
+//     issues closed as completed, each read from suggest-edit-function's
+//     attribution line (lib/attribution.mjs). The pull requests and issues come
+//     from the GitHub API with GITHUB_TOKEN (or GH_TOKEN): the workflow's token in
+//     Actions.
+//   - community/credit-overrides.yml (hide, rename, merge, no-credit) and the
+//     no-credit label take people or items out.
 //
 // Run:  node <quartz-book>/automation/scripts/gen-contributors.mjs   (in the book's clone)
 // Flags:
-//   --out <path>   write somewhere other than community/contributors.md
-//   --stdout       print the page instead of writing it
-//   --check        write nothing; exit 1 if the file on disk is out of date
+//   --out <path>   write the page somewhere other than community/contributors.md
+//                  (the ledger goes beside it, as credits.json)
+//   --stdout       print the page instead of writing anything
+//   --check        write nothing; exit 1 if either file on disk is out of date
 //
-// Node 22, no dependencies.
+// Node 22; one dependency, yaml (automation/package.json).
 //
 // ---------------------------------------------------------------------------
 // TWO THINGS TO KNOW BEFORE CHANGING THIS FILE
 //
-//  1. The output must be a pure function of the commit history. The weekly
+//  1. The output must be a pure function of the history (commits, and the
+//     pull requests and issues as GitHub has them). The weekly
 //     workflow opens a pull request only when the regenerated page differs
 //     byte-for-byte from the committed one, so anything that changes on its
 //     own — a `new Date()` stamp, a HEAD sha, a Set iteration order — turns a
@@ -42,7 +51,9 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 import { loadBook, field, isString, isStringArray, exitOnRegistryError, RegistryError } from './lib/registry.mjs';
+import { buildLedger, contributions, KINDS, pageAnchor, peopleOf } from './lib/credits.mjs';
 
 // The book's clone. These scripts live in the platform repo, not in the book.
 const REPO_ROOT = path.resolve(process.env.BOOK_ROOT || '.');
@@ -54,6 +65,8 @@ const REPO_ROOT = path.resolve(process.env.BOOK_ROOT || '.');
 // most-edited files that led with .github/workflows/ would tell a reader
 // nothing about the textbook.
 const CONTENT_DIR = 'chapters';
+// The pages a contribution can touch: the chapters, the front page, the glossary.
+const PAGE_PATHS = [CONTENT_DIR, 'index.md', 'glossary.md'];
 
 // Named identities that are automation rather than people. The `[bot]` suffix
 // catches GitHub's own actors (github-actions[bot], dependabot[bot], any App);
@@ -63,9 +76,6 @@ const CONTENT_DIR = 'chapters';
 // the bot's). Filled in by main() before any commit is read.
 let automationLogins = new Set();
 
-const MAX_PAGES_PER_CONTRIBUTOR = 3; // per row in the table
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'];
 
 // --- Small helpers ---------------------------------------------------------
 
@@ -81,6 +91,7 @@ function git(...args) {
 
 function parseArgs(argv) {
   const opts = { out: path.join(REPO_ROOT, 'community', 'contributors.md'), stdout: false, check: false };
+  opts.ledger = () => path.join(path.dirname(opts.out), 'credits.json');
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--out') opts.out = path.resolve(argv[++i] ?? '');
@@ -98,9 +109,6 @@ function parseArgs(argv) {
 const proposedBy = (body) =>
   [...body.matchAll(/^Proposed-by:[ \t]*(.+?)[ \t]*$/gm)].pop()?.[1].slice(0, 80) || null;
 
-/** Older anonymous proposals carry no trailer: they are credited as "A reader". */
-const ANON_MARK = /Proposed by a reader with the in-site editor\./;
-
 /** A name as the page prints it: characters Markdown, wikilinks or HTML would act on
  *  become character references, so a name a reader typed stays plain text. */
 const plainName = (s) => s.replace(/[&<>[\]|*_`\\~#!]/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -108,17 +116,7 @@ const plainName = (s) => s.replace(/[&<>[\]|*_`\\~#!]/g, (c) => `&#${c.charCodeA
 const isBot = (name, email) =>
   /\[bot\]/i.test(name) || /\[bot\]/i.test(email) || automationLogins.has(name.toLowerCase());
 
-/** "2026-08-17T14:58:11+02:00" -> "17 August 2026" (the author's own date). */
-function longDate(iso) {
-  const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
-}
 
-/** Same date, narrowed for table cells: "17 Aug 2026". */
-function shortDate(iso) {
-  const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${Number(d)} ${MONTHS[Number(m) - 1].slice(0, 3)} ${y}`;
-}
 
 /** "a, b and c" — an Oxford-comma-free English list. */
 function joinList(items) {
@@ -129,272 +127,186 @@ function joinList(items) {
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** `git log --numstat -M` renders a rename as a path, not two. Take the destination.
- *  Forms: "old => new" and "pre/{old => new}/post" (either side possibly empty). */
-function resolveRenamePath(p) {
-  if (!p.includes(' => ')) return p;
-  const braced = p.match(/^(.*)\{(.*) => (.*)\}(.*)$/);
-  if (braced) return `${braced[1]}${braced[3]}${braced[4]}`.replace(/\/{2,}/g, '/');
-  return p.slice(p.indexOf(' => ') + 4);
-}
 
 // --- Reading the history ---------------------------------------------------
 
-/** Every non-merge commit, newest first, with the name an in-site proposal gave
- *  (`proposer`) when the App committed it for an anonymous reader.
+/** Every non-merge commit, newest first, with the pages it touched, the name an
+ *  in-site proposal gave (`proposer`) when the App committed it for an anonymous
+ *  reader, and whether it is automation's.
  *
  *  --no-merges on purpose: a merge commit is a maintainer pressing a button,
- *  and counting it would credit the same work twice — once to whoever wrote it
- *  and once to whoever merged it. */
+ *  and counting it would credit the same work twice. */
 function readCommits() {
-  const out = git('log', '--no-merges', '-z', `--format=%H${US}%aN${US}%aE${US}%aI${US}%B`);
+  const out = git('log', '--no-merges', '-z', `--format=%H${US}%aN${US}%aE${US}%aI${US}%s${US}%B`);
+  const touches = readPageTouches();
   return out.split('\0').filter((r) => r.trim()).map((record) => {
-    const [sha, name, email, date, body = ''] = record.replace(/^\n/, '').split(US);
-    const proposer = isBot(name, email) ? proposedBy(body) ?? (ANON_MARK.test(body) ? 'A reader' : null) : null;
-    return { sha, name, email, date, proposer };
+    const [sha, name, email, date, subject, body = ''] = record.replace(/^\n/, '').split(US);
+    const bot = isBot(name, email);
+    // An anonymous proposal with no name (older ones carry no trailer) is nobody to credit.
+    const proposer = bot ? proposedBy(body) : null;
+    return { sha, name, email, date, subject, proposer, bot, pages: touches.get(sha) ?? [] };
   });
 }
 
-/** sha -> [{ path, lines }] for files under CONTENT_DIR only. */
-function readContentTouches() {
-  const out = git('log', '--no-merges', '-M', '--numstat', `--format=${RS}%H`, '--', CONTENT_DIR);
+/** sha -> [paths] of the pages it touched (chapters, the front page, the glossary). */
+function readPageTouches() {
+  const out = git('log', '--no-merges', '-M', '--name-only', `--format=${RS}%H`, '--', ...PAGE_PATHS);
   const touches = new Map();
   let sha = null;
-
   for (const line of out.split('\n')) {
     if (!line) continue;
     if (line.startsWith(RS)) { sha = line.slice(1); continue; }
-
-    const [added, deleted, rawPath] = line.split('\t');
-    if (rawPath === undefined || sha === null) continue;
-
-    const file = resolveRenamePath(rawPath);
-    if (!file.startsWith(`${CONTENT_DIR}/`) || !file.endsWith('.md')) continue;
-
-    // "-\t-" is git's marker for a binary file; count it as a touch, no lines.
-    const lines = (Number(added) || 0) + (Number(deleted) || 0);
+    if (sha === null || !line.endsWith('.md')) continue;
     if (!touches.has(sha)) touches.set(sha, []);
-    touches.get(sha).push({ path: file, lines });
+    touches.get(sha).push(line);
   }
   return touches;
 }
 
-/** Content pages that still exist, mapped to their display title (the H1). */
-async function readPageTitles() {
-  const tracked = git('ls-files', '--', CONTENT_DIR).split('\n').filter((f) => f.endsWith('.md'));
-  const titles = new Map();
-
-  for (const file of tracked) {
-    let heading = null;
+/** A page's frontmatter (as YAML) and body; {} when it has none or it doesn't parse. */
+async function readPage(file) {
+  let text = '';
+  try { text = (await fs.readFile(path.join(REPO_ROOT, file), 'utf8')).replace(/\r\n/g, '\n'); } catch { return null; }
+  const m = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text.trimStart());
+  let fm = {};
+  if (m) {
     try {
-      const text = await fs.readFile(path.join(REPO_ROOT, file), 'utf8');
-      heading = text.split('\n').find((l) => l.startsWith('# '))?.slice(2).trim() ?? null;
-    } catch { /* tracked but not in the working tree — fall back to the filename */ }
-
-    const base = path.basename(file, '.md');
-    // The link target is the full path: two files sharing a name (a chapter and a
-    // copy in another folder) must never send a link to the wrong one quietly.
-    const target = file.replace(/\.md$/, '');
-    // "Chapter 3: Reality and the Problem of Unobservables" is a title, not a
-    // link label. Keep what comes before the first colon or dash so the table
-    // stays readable; the full title is one click away.
-    const label = (heading ?? base).split(/\s*[:—–]\s*/)[0].trim();
-    titles.set(file, { target, label: label || base });
+      const parsed = YAML.parse(m[1]);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) fm = parsed;
+    } catch { /* unparseable frontmatter: none */ }
   }
-  return titles;
+  return { fm, body: m ? text.trimStart().slice(m[0].length) : text };
 }
 
-// --- Aggregating people ----------------------------------------------------
-
-function buildContributors(commits, touches) {
-  const groups = new Map(); // lowercased email -> group
-
-  for (const commit of commits) {
-    // An anonymous proposal is credited by the name the reader gave, kept apart
-    // from everyone with an address: typing a maintainer's name doesn't merge into
-    // their row.
-    const anon = commit.proposer !== null;
-    if (!anon && isBot(commit.name, commit.email)) continue;
-    const name = anon ? commit.proposer : commit.name;
-
-    const key = anon ? `\0proposed\0${name.toLowerCase()}` : commit.email.toLowerCase();
-    let group = groups.get(key);
-    if (!group) {
-      group = { anon, emails: new Set(), names: new Map(), commits: 0, first: commit.date, last: commit.date, pages: new Map() };
-      groups.set(key, group);
-    }
-
-    group.emails.add(key);
-    group.names.set(name, (group.names.get(name) ?? 0) + 1);
-    group.commits++;
-    if (commit.date < group.first) group.first = commit.date;
-    if (commit.date > group.last) group.last = commit.date;
-
-    for (const touch of touches.get(commit.sha) ?? []) {
-      const page = group.pages.get(touch.path) ?? { commits: 0, lines: 0 };
-      page.commits++;
-      page.lines += touch.lines;
-      group.pages.set(touch.path, page);
-    }
+/** The book's pages that exist now: path -> { title, authors, editors } (frontmatter title, else H1, else the file name). */
+async function readPages() {
+  const tracked = git('ls-files', '--', ...PAGE_PATHS).split('\n').filter((f) => f.endsWith('.md'));
+  const pages = new Map();
+  for (const file of tracked.sort()) {
+    const page = await readPage(file);
+    if (!page) continue;
+    const h1 = /^#\s+(.+?)\s*#*\s*$/m.exec(page.body)?.[1];
+    const title = String(page.fm.title ?? '').trim() || h1 || path.basename(file, '.md');
+    pages.set(file, {
+      title,
+      authors: peopleOf(page.fm.authors ?? page.fm.author),
+      editors: peopleOf(page.fm.editors ?? page.fm.editor),
+    });
   }
-
-  return mergeByName([...groups.values()]);
+  return pages;
 }
 
-/** Fold together groups that share a display name — the same person committing
- *  from a laptop and from github.com. A .mailmap is the proper fix; this covers
- *  the common case before anyone thinks to write one. */
-function mergeByName(groups) {
-  const dominantName = (g) => [...g.names.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
-  const byName = new Map();
-
-  for (const group of groups.sort((a, b) => a.first.localeCompare(b.first))) {
-    const key = `${group.anon ? '\0proposed\0' : ''}${dominantName(group).toLowerCase()}`;
-    const target = byName.get(key);
-    if (!target) { byName.set(key, group); continue; }
-
-    target.commits += group.commits;
-    for (const e of group.emails) target.emails.add(e);
-    for (const [n, c] of group.names) target.names.set(n, (target.names.get(n) ?? 0) + c);
-    if (group.first < target.first) target.first = group.first;
-    if (group.last > target.last) target.last = group.last;
-    for (const [p, stat] of group.pages) {
-      const page = target.pages.get(p) ?? { commits: 0, lines: 0 };
-      page.commits += stat.commits;
-      page.lines += stat.lines;
-      target.pages.set(p, page);
-    }
-  }
-
-  return [...byName.values()]
-    .map((g) => ({ ...g, name: plainName(dominantName(g)) }))
-    // Most commits first; ties go to whoever started earlier, then by name, so
-    // the order never depends on Map insertion or on git's output order.
-    .sort((a, b) => b.commits - a.commits || a.first.localeCompare(b.first) || a.name.localeCompare(b.name));
+/** community/credit-overrides.yml, or {} (no file). A file that doesn't parse stops the run. */
+async function readOverrides() {
+  let text;
+  try { text = await fs.readFile(path.join(REPO_ROOT, 'community', 'credit-overrides.yml'), 'utf8'); } catch { return {}; }
+  const parsed = YAML.parse(text);
+  if (parsed == null) return {};
+  if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('community/credit-overrides.yml must be a mapping (hide:, rename:, merge:, no-credit:).');
+  return parsed;
 }
 
-/** A contributor's most-worked-on pages, best first, existing pages only. */
-function topPages(contributor, titles) {
-  return [...contributor.pages.entries()]
-    .filter(([file]) => titles.has(file)) // pages since deleted or renamed away
-    .sort((a, b) => b[1].commits - a[1].commits || b[1].lines - a[1].lines || a[0].localeCompare(b[0]))
-    .slice(0, MAX_PAGES_PER_CONTRIBUTOR)
-    .map(([file]) => titles.get(file));
+/** Every closed pull request and issue, from GitHub (paged), as the API gives them. */
+async function readGitHub(repo) {
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (!token) throw new Error('GITHUB_TOKEN (or GH_TOKEN) is needed to read the book\'s accepted proposals and notes. In Actions it is the workflow\'s token.');
+  const get = async (what) => {
+    const all = [];
+    for (let page = 1; ; page++) {
+      const res = await fetch(`${process.env.GITHUB_API_URL || "https://api.github.com"}/repos/${repo}/${what}${what.includes('?') ? '&' : '?'}state=closed&per_page=100&page=${page}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'textbook-actions (contributors)' },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) throw new Error(`GET ${what}: HTTP ${res.status}`);
+      const batch = await res.json();
+      all.push(...batch);
+      if (batch.length < 100) return all;
+    }
+  };
+  const [pulls, issues] = await Promise.all([get('pulls?sort=created&direction=asc'), get('issues?sort=created&direction=asc')]);
+  return { pulls, issues: issues.filter((i) => !i.pull_request) };
 }
 
 // --- Rendering -------------------------------------------------------------
 
-/** Obsidian wikilink by full path, always aliased with the page's label.
- *  The alias separator is escaped because every one of these lands in a table
- *  cell, where a bare | ends the cell: [[path\\|Alias]] is the form Obsidian
- *  documents for exactly this, and markdownlint's MD056 agrees. */
-const wikilink = ({ target, label }) => `[[${target}\\|${label}]]`;
 
+const wikilink = (file, label) => `[[${file.replace(/\.md$/, '')}\\|${label}]]`;
 const escapeCell = (s) => s.replaceAll('|', '\\|');
+const KIND_WORDS = { edit: ['edit', 'edits'], note: ['note', 'notes'], suggestion: ['suggestion', 'suggestions'], commit: ['commit', 'commits'] };
 
-function renderIntro(contributors, config) {
-  const { title, maintainer } = config;
-  const lines = [
-    `*${title}* is maintained in the open. The chapters are plain text files in a public repository, every change to them is a commit signed by whoever made it, and this page is put together from that history — so anyone whose work has landed in the book turns up here without having to ask.`,
-    '',
-  ];
-
-  if (contributors.length === 0) {
-    lines.push('No contributions have been recorded yet. The table below fills itself in as soon as the first change lands.');
-    return lines;
-  }
-
-  const [lead, ...rest] = contributors;
-  const span = lead.first.slice(0, 10) === lead.last.slice(0, 10)
-    ? `on ${longDate(lead.first)}`
-    : `between ${longDate(lead.first)} and ${longDate(lead.last)}`;
-
-  if (contributors.length === 1) {
-    lines.push(`So far that history has one name in it. ${lead.name} has made ${plural(lead.commits, 'commit')} ${span}, which is every word of the book as it currently stands. The book is early, and the list is short for the same reason — there is room on it.`);
-  } else if (contributors.length <= 4) {
-    const restCommits = plural(rest.reduce((n, c) => n + c.commits, 0), 'commit');
-    const restClause = rest.length === 1
-      ? `${rest[0].name} has contributed ${restCommits}`
-      : `the others have contributed ${restCommits} between them`;
-    lines.push(`${joinList(contributors.map((c) => c.name))} have worked on the book so far. ${lead.name} has made the most changes — ${plural(lead.commits, 'commit')} ${span} — and ${restClause}.`);
-  } else {
-    const named = contributors.slice(0, 3).map((c) => c.name);
-    lines.push(`${plural(contributors.length, 'person', 'people')} have worked on the book so far, between them making ${plural(contributors.reduce((n, c) => n + c.commits, 0), 'commit')}. The most frequent contributors are ${joinList(named)}; the full list is below, in order of how much each has changed.`);
-  }
-
-  lines.push('', `Maintenance and review stay with ${maintainer}: outside contributions arrive as pull requests and are read before they are merged. Being on this list means your work is in the book, not that you are responsible for the rest of it.`);
-  return lines;
+/** A person's name, linked to their GitHub profile and ORCID record where known. */
+function personLine(p) {
+  const name = plainName(p.name);
+  const links = [];
+  if (p.github) links.push(`[GitHub](https://github.com/${p.github})`);
+  if (p.orcid) links.push(`[ORCID](https://orcid.org/${p.orcid})`);
+  return links.length ? `${name} (${links.join(', ')})` : name;
 }
 
-function renderTable(contributors, titles) {
-  const rows = [
-    '| Contributor | Changes | First | Most recent | Pages worked on most |',
-    '| --- | ---: | --- | --- | --- |',
-  ];
-
-  for (const c of contributors) {
-    const pages = topPages(c, titles);
-    rows.push([
-      '',
-      escapeCell(c.name),
-      String(c.commits),
-      shortDate(c.first),
-      shortDate(c.last),
-      pages.length ? pages.map(wikilink).join(', ') : '—',
-      '',
-    ].join(' | ').trim());
+/** The book's people in one role: book-level first, then chapter-level, each once, with the chapters they're on. */
+function roleList(role, book, pages) {
+  const seen = new Map();
+  for (const p of book) seen.set(p.name.toLowerCase(), { person: p, pages: [] });
+  for (const [file, page] of pages) {
+    if (file === 'index.md') continue;
+    for (const p of page[role]) {
+      const key = p.name.toLowerCase();
+      if (!seen.has(key)) seen.set(key, { person: p, pages: [] });
+      if (!book.some((b) => b.name.toLowerCase() === key)) seen.get(key).pages.push(wikilink(file, page.title));
+    }
   }
-
-  return rows;
+  return [...seen.values()].map(({ person, pages: on }) => `- ${personLine(person)}${on.length ? ` — ${joinList(on)}` : ''}`);
 }
 
-function renderPage({ contributors, titles, config, botCommits, generatedOn }) {
-  const { licence } = config;
+function renderPage({ ledger, pages, config }) {
+  const index = pages.get('index.md') ?? { authors: [], editors: [] };
+  const authors = roleList('authors', index.authors, pages);
+  const editors = roleList('editors', index.editors, pages);
   const out = ['# Contributors', ''];
+  out.push(`*${config.title}* is written in the open. This page credits everyone whose work is in it: the authors and editors named on its pages, and every reader whose accepted edit, note or suggestion changed it. It is rebuilt from the book's history.`, '');
 
-  out.push(...renderIntro(contributors, config), '');
+  out.push('## Authors', '', ...(authors.length ? authors : ['The book names no authors yet.']), '');
+  out.push('## Editors', '', ...(editors.length ? editors : ['The book names no editors.']), '');
 
-  if (contributors.length > 0) {
-    out.push('## Who has worked on the book', '');
-    out.push(...renderTable(contributors, titles), '');
-    out.push(`"Changes" counts commits, which is a rough measure and an honest one: a commit can be a rewritten section or a corrected apostrophe, and both are worth having. The pages column looks only at ${CONTENT_DIR}/ — the book itself — so work on the build, the workflows or the documentation is real but invisible here.`, '');
+  out.push('## Contributors', '');
+  if (!ledger.contributors.length) {
+    out.push('No accepted contributions yet. The first accepted edit, note or suggestion puts its author here.', '');
+  } else {
+    out.push(`${plural(ledger.contributors.length, 'person', 'people')} ${ledger.contributors.length === 1 ? 'has' : 'have'} contributed so far.`, '');
+    out.push('| Contributor | Contributions | Pages | References |', '| --- | --- | --- | --- |');
+    for (const c of ledger.contributors) {
+      const counts = KINDS.filter((k) => c.counts[k]).map((k) => `${c.counts[k]} ${KIND_WORDS[k][c.counts[k] === 1 ? 0 : 1]}`).join(', ');
+      const on = [...new Set(c.contributions.flatMap((x) => x.pages))].filter((f) => pages.has(f)).sort();
+      // The proposals and notes, linked; commits are in the count (and the page history).
+      const refs = c.contributions.filter((x) => x.kind !== 'commit' && x.url).map((x) => `[${x.ref}](${x.url})`);
+      rows(out, [escapeCell(personLine(c)), counts, on.map((f) => wikilink(f, pages.get(f).title)).join(', ') || '—', refs.join(' ') || '—']);
+    }
+    out.push('');
   }
 
-  out.push('## Getting your name on this page', '');
-  out.push('You do not need to be a maintainer, or know anything about Git, to end up in the table. There are three ways in, and the lightest one is a perfectly good way to start.', '');
-  out.push('**Suggest an edit.** Every page on the site has a *Suggest an edit* link. Fill in what is wrong and what it should say, and the change is filed for review. No account is needed. This is the right route for a typo, a broken reference, or a sentence that does not say what it means to.', '');
-  out.push('**Edit the source on GitHub.** Every page also carries an *Edit on GitHub* link, which opens that page\'s Markdown file in the browser. With a free GitHub account you can change the text and propose it as a pull request; a maintainer reviews it before anything moves. Small fixes are as welcome as large ones.', '');
-  out.push(`**Use the browser editor.** Contributors given editing access work in a web editor that writes to the drafts branch, no Obsidian and no terminal involved. If you are teaching from the book and expect to make changes regularly, that is the route to ask for${docLinks(config)}.`, '');
-  out.push('Margin comments count as contributions too, and are often the most useful thing a reader leaves behind — but they live in the annotation layer rather than in the repository, so they do not appear in the table above.', '');
-
-  if (botCommits > 0) {
-    out.push(`Routine housekeeping — annotation backups, link checks, and the rebuild of this page — is committed by \`github-actions[bot]\` and is left out of the counts above.`, '');
+  // Each page's contributors, under an anchor the page's own footer links to.
+  const byPage = [...pages.keys()].filter((f) => ledger.contributors.some((c) => c.contributions.some((x) => x.pages.includes(f))));
+  if (byPage.length) {
+    out.push('## By page', '');
+    for (const f of byPage) {
+      const names = ledger.contributors.filter((c) => c.contributions.some((x) => x.pages.includes(f))).map((c) => plainName(c.name));
+      out.push(`<a id="${pageAnchor(f)}"></a>`, '', `**${wikilink(f, pages.get(f).title)}**: ${joinList(names)}`, '');
+    }
   }
 
+  out.push('## How credit works', '');
+  out.push('- **Authors** wrote the book or a chapter, and **editors** edited it. Both are named on the pages they worked on, and both are in every citation: a chapter is cited by its authors, with the book\'s editors as the book\'s; a book with editors and no authors of its own is cited by its editors.');
+  out.push('- **Contributors** are readers whose work the authors accepted: an edit proposed with *Edit this page* and merged, a note to the authors or a suggested edit the authors acted on, or a change made directly in the book\'s repository. Each is thanked at the foot of the pages they changed and listed here. Contributors are not part of the citation.');
+  out.push('- Something the authors decline earns no credit. Someone who sent a suggestion without signing in is credited by the name they gave.');
+  out.push('- To be left off this page, or to have two names counted as one person, ask the authors: they record it in `community/credit-overrides.yml`.', '');
   out.push('---', '');
-  out.push(`*Contributions to ${config.title} are made available under ${licence}, the licence the book itself carries: share and adapt freely, with attribution, under the same terms.*`, '');
-  out.push(`*This page is rebuilt from the repository's commit history. Last updated ${generatedOn}.*`, '');
-
+  out.push(`*Contributions to ${config.title} are made available under ${config.licence}, the licence the book itself carries.*`, '');
   return `${out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
 }
 
-/**
- * The two guides the browser-editor paragraph points to. Neither is a page of the
- * book (docs/ is not published, and the coordinators' walkthrough lives with the
- * edition template), so both are GitHub links, and each is left out when the book
- * doesn't have it.
- */
-function docLinks({ trustedGuide, editionGuide }) {
-  const links = [];
-  if (trustedGuide) links.push(`see [Editing chapters in the browser](${trustedGuide})`);
-  if (editionGuide) links.push(`${links.length ? '' : 'see '}[setting up a department edition](${editionGuide}) if your course wants its own copy`);
-  return links.length ? ` — ${links.join(', and ')}` : '';
-}
+const rows = (out, cells) => out.push(`| ${cells.join(' | ')} |`);
 
 // --- Main ------------------------------------------------------------------
-
-const TRUSTED_GUIDE = 'docs/for-trusted-contributors.md';
-const EDITION_GUIDE = 'docs/department-edition-setup.md';
 
 /** What the page needs from the book's registry entry, and the platform's bot accounts. */
 async function readConfig() {
@@ -402,20 +314,10 @@ async function readConfig() {
   const logins = registry.platform?.automation_logins;
   if (!isStringArray(logins)) throw new RegistryError(`the registry has no valid platform.automation_logins (expected a list of logins, got ${JSON.stringify(logins)}).`);
   automationLogins = new Set(logins.map((l) => l.toLowerCase()));
-  const repo = field(book, 'content.repo', isString, 'owner/name');
-  const branch = field(book, 'content.live_branch', isString, 'a branch');
-  const template = book.editions?.template_repo;
-  let trustedGuide = null;
-  try {
-    await fs.access(path.join(REPO_ROOT, TRUSTED_GUIDE));
-    trustedGuide = `https://github.com/${repo}/blob/${branch}/${TRUSTED_GUIDE}`;
-  } catch { /* this book has no such guide */ }
   return {
+    repo: field(book, 'content.repo', isString, 'owner/name'),
     title: field(book, 'title', isString, 'a title'),
-    maintainer: field(book, 'maintainer.name', isString, 'a name'),
     licence: field(book, 'licence', isString, 'an SPDX id'),
-    trustedGuide,
-    editionGuide: isString(template) ? `https://github.com/${template}/blob/main/${EDITION_GUIDE}` : null,
   };
 }
 
@@ -432,45 +334,43 @@ async function main() {
   } catch (err) {
     exitOnRegistryError(err);
   }
-  const commits = readCommits();
-  const touches = readContentTouches();
-  const titles = await readPageTitles();
-  const contributors = buildContributors(commits, touches);
-  const botCommits = commits.filter((c) => c.proposer === null && isBot(c.name, c.email)).length;
-
-  // The stamp is the date of the newest counted commit, never today's date:
-  // see note 1 at the top of this file.
-  const newest = contributors.reduce((acc, c) => (acc && acc > c.last ? acc : c.last), null);
-  const generatedOn = newest ? longDate(newest) : longDate(commits[0]?.date ?? '1970-01-01T00:00:00Z');
-
-  const page = renderPage({ contributors, titles, config, botCommits, generatedOn });
+  const pages = await readPages();
+  // Everyone named as an author or editor anywhere in the book: credited as that, not as a contributor.
+  // The registry's `authors` (who may use the author site) aren't the book's authors:
+  // only the frontmatter names those.
+  const listed = [...pages.values()].flatMap((p) => [...p.authors, ...p.editors]);
+  const { pulls, issues } = await readGitHub(config.repo);
+  const items = contributions({ pulls, issues, commits: readCommits(), repoUrl: `https://github.com/${config.repo}` });
+  const ledger = buildLedger({ contributions: items, overrides: await readOverrides(), listed });
+  const ledgerText = `${JSON.stringify(ledger, null, 2)}\n`;
+  const page = renderPage({ ledger, pages, config });
 
   if (opts.stdout) {
     process.stdout.write(page);
     return 0;
   }
 
-  let current = null;
-  try { current = await fs.readFile(opts.out, 'utf8'); } catch { /* not written yet */ }
+  const read = async (p) => { try { return await fs.readFile(p, 'utf8'); } catch { return null; } };
+  const files = [[opts.out, page], [opts.ledger(), ledgerText]];
+  const stale = [];
+  for (const [p, text] of files) if ((await read(p)) !== text) stale.push(p);
 
   if (opts.check) {
-    if (current === page) {
-      console.log(`${path.relative(REPO_ROOT, opts.out)} is up to date.`);
+    if (!stale.length) {
+      console.log('community/contributors.md and community/credits.json are up to date.');
       return 0;
     }
-    console.error(`${path.relative(REPO_ROOT, opts.out)} is out of date — run gen-contributors.mjs from quartz-book in the book's clone`);
+    console.error(`${stale.map((p) => path.relative(REPO_ROOT, p)).join(' and ')} out of date — run gen-contributors.mjs from quartz-book in the book's clone`);
     return 1;
   }
-
-  if (current === page) {
-    console.log(`${path.relative(REPO_ROOT, opts.out)} unchanged (${plural(contributors.length, 'contributor')}).`);
+  if (!stale.length) {
+    console.log(`unchanged (${plural(ledger.contributors.length, 'contributor')}).`);
     return 0;
   }
-
   await fs.mkdir(path.dirname(opts.out), { recursive: true });
-  await fs.writeFile(opts.out, page);
-  console.log(`wrote ${path.relative(REPO_ROOT, opts.out)} — ${plural(contributors.length, 'contributor')}, ${plural(commits.length - botCommits, 'commit')} counted, ${botCommits} from automation.`);
+  for (const [p, text] of files) await fs.writeFile(p, text);
+  console.log(`wrote ${stale.map((p) => path.relative(REPO_ROOT, p)).join(' and ')} — ${plural(ledger.contributors.length, 'contributor')}.`);
   return 0;
 }
 
-process.exitCode = await main();
+if (process.argv[1] && import.meta.url === new URL(`file://${path.resolve(process.argv[1])}`).href) process.exitCode = await main();

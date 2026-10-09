@@ -1,7 +1,8 @@
 // The book automation scripts (automation/, §8 step 14), without the network:
 // every script reads the registry from a file here, and nothing calls an API.
 import assert from "node:assert/strict"
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, spawn, spawnSync } from "node:child_process"
+import { createServer } from "node:http"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -129,26 +130,153 @@ function run(script, { dir, registryPath }, ...args) {
   })
 }
 
-test("contributors: full-path links, no bot, the registry's names, guides on GitHub", () => {
+/** A GitHub stand-in for the contributors' API reads: closed pulls and issues, from `data`. */
+async function fakeGitHub(data) {
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, "http://x")
+    const kind = url.pathname.endsWith("/pulls")
+      ? "pulls"
+      : url.pathname.endsWith("/issues")
+        ? "issues"
+        : null
+    const page = Number(url.searchParams.get("page") ?? 1)
+    res.setHeader("content-type", "application/json")
+    if (!kind || req.headers.authorization !== "Bearer test-token")
+      return res.writeHead(401).end("[]")
+    res.end(JSON.stringify(page === 1 ? (data[kind] ?? []) : []))
+  })
+  await new Promise((r) => server.listen(0, "127.0.0.1", r))
+  return { url: `http://127.0.0.1:${server.address().port}`, close: () => server.close() }
+}
+
+/** The contributors generator in the book, against the fake API (async: the server answers in-process). */
+async function contributorsRun(book, data, ...args) {
+  const api = await fakeGitHub(data)
+  const env = {
+    ...process.env,
+    TEXTBOOK_REGISTRY: book.registryPath,
+    GITHUB_API_URL: api.url,
+    GITHUB_TOKEN: "test-token",
+  }
+  delete env.GITHUB_REPOSITORY
+  delete env.GITHUB_ACTIONS
+  delete env.GH_TOKEN
+  if (data.noToken) delete env.GITHUB_TOKEN
+  const child = spawn(process.execPath, [join(scripts, "gen-contributors.mjs"), ...args], {
+    cwd: book.dir,
+    env,
+  })
+  let stdout = ""
+  let stderr = ""
+  child.stdout.on("data", (d) => (stdout += d))
+  child.stderr.on("data", (d) => (stderr += d))
+  const status = await new Promise((r) => child.on("close", r))
+  api.close()
+  return { status, stdout, stderr }
+}
+
+const issue = (number, reason, who, labels, file = "chapters/chapter-03.md") => ({
+  number,
+  state_reason: reason,
+  closed_at: "2026-10-09T10:53:20Z",
+  html_url: `https://github.com/someone/automation-fixture/issues/${number}`,
+  labels: labels.map((name) => ({ name })),
+  body: `**File:** [\`${file}\`](x)\n\n---\n\n**Submitted by:** ${who}\n`,
+})
+const pull = (number, merged, who) => ({
+  number,
+  merged_at: merged ? "2026-10-08T09:00:00Z" : null,
+  html_url: `https://github.com/someone/automation-fixture/pull/${number}`,
+  labels: [{ name: "proposed-edit" }],
+  head: { sha: "f".repeat(40) },
+  body: `**File:** [\`chapters/chapter-03.md\`](x)\n\n---\n\n**Proposed by:** ${who}\n`,
+})
+const API = {
+  pulls: [
+    pull(7, true, "@ada-l (signed in with GitHub)"),
+    pull(14, false, "@gobi10k (signed in with GitHub)"),
+  ],
+  issues: [
+    issue(12, "completed", "@gobi10k (signed in with GitHub)", ["section-note"]),
+    issue(15, "not_planned", "`Platform test`", ["suggested-edit", "section-note"]),
+    issue(
+      16,
+      "completed",
+      "`Bea Reader`",
+      ["suggested-edit"],
+      "chapters/Definitions/Critical Realism.md",
+    ),
+  ],
+}
+
+/** The fixture book with authors and editors in its frontmatter. */
+function creditedBook() {
   const book = makeBook()
-  const res = run("gen-contributors.mjs", book, "--stdout")
+  const git = (...args) => execFileSync("git", ["-C", book.dir, ...args], { encoding: "utf8" })
+  writeFileSync(
+    join(book.dir, "index.md"),
+    "---\nauthors:\n  - name: Ada Author\n    orcid: 0000-0002-1825-0097\neditors:\n  - name: Ed Itor\n    github: ed-itor\n---\n\n# Automation fixture\n",
+  )
+  writeFileSync(
+    join(book.dir, "chapters/chapter-03.md"),
+    "---\nauthors: [Cee Writer]\n---\n\n# Chapter 3: Reality\n\nText, edited.\n",
+  )
+  git("add", "-A")
+  git(
+    "-c",
+    "user.name=Dee Direct",
+    "-c",
+    "user.email=dee@example.invalid",
+    "commit",
+    "--quiet",
+    "-m",
+    "Tidy chapter 3",
+  )
+  return book
+}
+
+test("contributors: authors and editors from the frontmatter; contributors from commits, merged proposals and completed notes", async () => {
+  const book = creditedBook()
+  const res = await contributorsRun(book, API, "--stdout")
   assert.equal(res.status, 0, res.stderr)
   const page = res.stdout
   assert.match(
     page,
-    /\| Ada Author \| 1 \| .* \| \[\[chapters\/chapter-03\\\|Chapter 3\]\], \[\[chapters\/Definitions\/Critical Realism\\\|Critical Realism\]\] \|/,
+    /## Authors\n\n- Ada Author \(\[ORCID\]\(https:\/\/orcid\.org\/0000-0002-1825-0097\)\)\n- Cee Writer — \[\[chapters\/chapter-03\\\|Chapter 3: Reality\]\]\n/,
   )
-  assert.doesNotMatch(page, /aldogobot/)
-  assert.match(page, /Maintenance and review stay with Ada:/)
-  assert.match(page, /under CC-BY-4\.0, the licence/)
+  assert.match(page, /## Editors\n\n- Ed Itor \(\[GitHub\]\(https:\/\/github\.com\/ed-itor\)\)\n/)
+  // Ada and Cee are authors, so not contributors; the bot never; #14 declined, #15 not planned.
   assert.match(
     page,
-    /see \[Editing chapters in the browser\]\(https:\/\/github\.com\/someone\/automation-fixture\/blob\/main\/docs\/for-trusted-contributors\.md\), and \[setting up a department edition\]\(https:\/\/github\.com\/textbookproject2026-alt\/textbook-edition-template\/blob\/main\/docs\/department-edition-setup\.md\) if your course wants its own copy\./,
+    /\| ada-l \(\[GitHub\]\(https:\/\/github\.com\/ada-l\)\) \| 1 edit \| \[\[chapters\/chapter-03\\\|Chapter 3: Reality\]\] \| \[#7\]\(https:\/\/github\.com\/someone\/automation-fixture\/pull\/7\) \|/,
   )
-  assert.doesNotMatch(page, /\[\[for-/)
+  assert.match(
+    page,
+    /\| gobi10k \(\[GitHub\]\(https:\/\/github\.com\/gobi10k\)\) \| 1 note \| .* \| \[#12\]\(/,
+  )
+  assert.match(
+    page,
+    /\| Bea Reader \| 1 suggestion \| \[\[chapters\/Definitions\/Critical Realism\\\|Critical Realism\]\] \| \[#16\]\(/,
+  )
+  assert.match(page, /\| Dee Direct \| 1 commit \|/)
+  for (const absent of [
+    /#14/,
+    /#15/,
+    /Platform test/,
+    /aldogobot/,
+    /\| Ada Author \|/,
+    /\| Cee Writer \|/,
+  ])
+    assert.doesNotMatch(page, absent)
+  assert.match(
+    page,
+    /<a id="page-chapters-chapter-03"><\/a>\n\n\*\*\[\[chapters\/chapter-03\\\|Chapter 3: Reality\]\]\*\*: ada-l, Dee Direct and gobi10k/,
+  )
+  assert.match(page, /## How credit works/)
+  assert.match(page, /under CC-BY-4\.0, the licence/)
 })
 
-test("contributors: anonymous in-site proposals by the name they gave, never the App", () => {
+test("contributors: anonymous in-site proposals by the name they gave, never the App, never 'a reader'", async () => {
   const book = makeBook()
   const git = (...args) => execFileSync("git", ["-C", book.dir, ...args], { encoding: "utf8" })
   const app = [
@@ -172,40 +300,51 @@ test("contributors: anonymous in-site proposals by the name they gave, never the
   const mark = "Proposed by a reader with the in-site editor."
   propose("# Chapter 3: Reality\n\nOne.\n", `Fix\n\n${mark}`)
   propose("# Chapter 3: Reality\n\nTwo.\n", `Fix\n\n${mark}\n\nProposed-by: Jo <b>Reader</b> [[x]]`)
-  propose("# Chapter 3: Reality\n\nThree.\n", `Fix\n\n${mark}\n\nProposed-by: Ada Author`)
-  propose("# Chapter 3: Reality\n\nFour.\n", "Weekly housekeeping")
-  const res = run("gen-contributors.mjs", book, "--stdout")
+  propose("# Chapter 3: Reality\n\nThree.\n", "Weekly housekeeping")
+  const res = await contributorsRun(book, {}, "--stdout")
   assert.equal(res.status, 0, res.stderr)
-  const page = res.stdout
-  assert.match(page, /\| A reader \| 1 \|/, "a proposal from before the trailer")
   assert.match(
-    page,
-    /\| Jo &#60;b&#62;Reader&#60;\/b&#62; &#91;&#91;x&#93;&#93; \| 1 \|/,
+    res.stdout,
+    /\| Jo &#60;b&#62;Reader&#60;\/b&#62; &#91;&#91;x&#93;&#93; \| 1 commit \|/,
     "plain text, whatever was typed",
   )
-  assert.match(page, /\| Ada Author \| 1 \|/, "a typed name doesn't join the person's row")
-  assert.equal(page.match(/\| Ada Author \|/g).length, 2)
-  assert.doesNotMatch(page, /suggest-edit\[bot\]/)
+  assert.doesNotMatch(res.stdout, /A reader|suggest-edit\[bot\]|aldogobot/)
 })
 
-test("contributors: a book without the guides gets no links to them", () => {
-  const page = run(
-    "gen-contributors.mjs",
-    makeBook({ editions: null, trustedGuide: false }),
-    "--stdout",
+test("contributors: credit-overrides.yml hides, renames and takes items out", async () => {
+  const book = creditedBook()
+  mkdirSync(join(book.dir, "community"), { recursive: true })
+  writeFileSync(
+    join(book.dir, "community/credit-overrides.yml"),
+    'hide: ["@gobi10k"]\nrename:\n  Bea Reader: Beatrice Reader\nno-credit: ["#7"]\n',
   )
-  assert.equal(page.status, 0, page.stderr)
-  assert.match(page.stdout, /that is the route to ask for\.\n/)
+  const res = await contributorsRun(book, API, "--stdout")
+  assert.equal(res.status, 0, res.stderr)
+  assert.doesNotMatch(res.stdout, /gobi10k|#7|ada-l|Bea Reader \|/)
+  assert.match(res.stdout, /\| Beatrice Reader \| 1 suggestion \|/)
 })
 
-test("contributors writes the page into the book, and --check agrees afterwards", () => {
-  const book = makeBook()
-  assert.equal(run("gen-contributors.mjs", book).status, 0)
+test("contributors writes the page and the ledger into the book, --check agrees afterwards; no token, no run", async () => {
+  const book = creditedBook()
+  assert.equal((await contributorsRun(book, API)).status, 0)
   assert.match(
     readFileSync(join(book.dir, "community/contributors.md"), "utf8"),
     /^# Contributors\n/,
   )
-  assert.equal(run("gen-contributors.mjs", book, "--check").status, 0)
+  const ledger = JSON.parse(readFileSync(join(book.dir, "community/credits.json"), "utf8"))
+  assert.deepEqual(
+    ledger.contributors.map((c) => c.name),
+    ["ada-l", "Bea Reader", "Dee Direct", "gobi10k"],
+  )
+  assert.equal((await contributorsRun(book, API, "--check")).status, 0)
+  assert.equal(
+    (await contributorsRun(book, { ...API, issues: [] }, "--check")).status,
+    1,
+    "a newly accepted note makes it stale",
+  )
+  const none = await contributorsRun(book, { ...API, noToken: true }, "--stdout")
+  assert.notEqual(none.status, 0)
+  assert.match(none.stderr, /GITHUB_TOKEN/)
 })
 
 test("derivatives: a book with no edition template writes nothing", () => {

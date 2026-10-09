@@ -75,7 +75,7 @@ jobs:
         run: npx prettier --check builder test fixtures/registry.json quartz.config.yaml
 
       - name: The builder's and the book automation's tests (fixture book, fixture registry)
-        run: node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/export.test.mjs test/history.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
+        run: node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/credits.test.mjs test/export.test.mjs test/history.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 
       - name: Which live book
         id: book
