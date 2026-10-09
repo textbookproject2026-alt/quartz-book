@@ -10,7 +10,7 @@
 // checked book one's own pages and redirects; these checks hold for any book.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { REGISTRY_URL, bookContents, contentsOrder } from "../builder/lib.mjs"
 
@@ -134,6 +134,36 @@ check(
     const front = read("index.html")
     assert.match(front, /<meta name="DC.type" content="(book|paper|report|article)">/)
     assert.doesNotMatch(front, /citation_book_title/)
+  },
+)
+
+check(
+  "the downloads: the chapter's PDF and EPUB and the book's PDF, EPUB and ODT, linked from the page",
+  () => {
+    const html = pageHtml()
+    const data = JSON.parse(
+      /<script type="application\/json" id="tb-downloads">(.*?)<\/script>/.exec(html)?.[1] ??
+        "null",
+    )
+    assert.ok(data, "no tb-downloads in the page")
+    assert.deepEqual(Object.keys(data.chapter ?? {}).sort(), ["epub", "pdf"])
+    assert.deepEqual(Object.keys(data.book ?? {}).sort(), ["epub", "odt", "pdf"])
+    for (const url of [...Object.values(data.chapter), ...Object.values(data.book)]) {
+      assert.match(url, /^\/downloads\/[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.(pdf|epub|odt)$/)
+      const file = join(out, url.slice(1))
+      assert.ok(existsSync(file), `${url} is linked but wasn't made`)
+      assert.ok(statSync(file).size > 1000, `${url} is nearly empty`)
+    }
+    assert.ok(
+      html.includes(
+        `<meta name="citation_pdf_url" content="https://${book.site.domain}${data.chapter.pdf}">`,
+      ),
+    )
+    const alias = data.book.pdf.replace(/-\d{4}-\d{2}-\d{2}(?=\.pdf$)/, "")
+    assert.ok(
+      read("_redirects").includes(`${alias} ${data.book.pdf} 302`),
+      "no dateless alias for the book's PDF",
+    )
   },
 )
 

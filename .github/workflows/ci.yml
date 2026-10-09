@@ -66,11 +66,16 @@ jobs:
             process.exit(bad ? 1 : 0)
           '
 
+      - name: pandoc and Typst, for the downloads
+        uses: ./.github/actions/export-tools
+        with:
+          save: "true"
+
       - name: Style
         run: npx prettier --check builder test fixtures/registry.json quartz.config.yaml
 
       - name: The builder's and the book automation's tests (fixture book, fixture registry)
-        run: node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/history.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
+        run: node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/export.test.mjs test/history.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 
       - name: Which live book
         id: book

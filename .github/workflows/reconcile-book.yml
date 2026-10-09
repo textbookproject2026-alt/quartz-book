@@ -88,6 +88,11 @@ jobs:
         if: steps.check.outputs.build == 'true'
         run: npx quartz plugin install
 
+      # The downloads' pandoc and Typst; restore-only cache, saved by ci.yml.
+      - name: pandoc and Typst, for the downloads
+        if: steps.check.outputs.build == 'true'
+        uses: ./.github/actions/export-tools
+
       # The whole history, not --depth: every page's History list is built from
       # `git log --follow` (builder/prepare.mjs refuses a shallow checkout), and
       # the catalog's recent changes read it too. Book repos are text; it's cheap.

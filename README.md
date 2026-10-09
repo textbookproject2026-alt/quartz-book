@@ -245,6 +245,8 @@ The header of each workflow shows its caller.
 | `quartz.lock.json`                                                      | Every plugin's pinned commit, including the four extras plugins, all at one extras commit (§4b)                                                                                        |
 | `build-book.sh`                                                         | The build, above                                                                                                                                                                       |
 | `builder/lib.mjs`                                                       | Every decision the build makes, as pure functions                                                                                                                                      |
+| `builder/citations.mjs`, `builder/csl/`                                 | The Cite dialog's citations, formatted at build time (citation-js, four vendored CSL styles)                                                                                          |
+| `builder/export.mjs`, `.github/actions/export-tools/`                   | The downloads (PDF, EPUB, ODT) and their pinned pandoc and Typst                                                                                                                       |
 | `builder/prepare.mjs`, `builder/finish.mjs`                             | The steps before and after Quartz                                                                                                                                                      |
 | `builder/check-output.mjs`                                              | The allowlist check on its own                                                                                                                                                         |
 | `builder/reconcile.mjs`                                                 | `reconcile`'s comparison: which books and branches are behind their served marker                                                                                                      |
@@ -252,7 +254,7 @@ The header of each workflow shows its caller.
 | `builder/pages/how-to-comment.md`                                       | The reader page every book gets, from book one's `docs/how-to-comment.md`                                                                                                              |
 | `fixtures/book/`                                                        | A small book used by the tests. `chapters/QA.md` is the design fixture, moved from book one (§4c)                                                                                      |
 | `fixtures/registry.json`                                                | Three fixture books: suggest on, suggest off, and retired                                                                                                                              |
-| `test/`                                                                 | `lib.test.mjs`, `catalog.test.mjs`, `preview.test.mjs` and `automation.test.mjs` (no Quartz), `build.test.mjs` (builds the fixture), `check-live-book.mjs` (picks a live book, checks its build) |
+| `test/`                                                                 | `lib.test.mjs`, `catalog.test.mjs`, `export.test.mjs`, `preview.test.mjs` and `automation.test.mjs` (no Quartz), `citations.test.mjs` (citation-js), `build.test.mjs` (builds the fixture), `check-live-book.mjs` (picks a live book, checks its build) |
 | `.github/workflows/ci.yml`                                              | Runs the tests, then builds the first `live` book on the builder (from the registry) and checks it. Deploys nothing                                                                    |
 | `.github/workflows/reconcile.yml`, `reconcile-book.yml`                 | Builds and deploys the books that are behind (above)                                                                                                                                   |
 | `.github/workflows/bump-extras.yml`, `design-preview.yml`, `stable.yml` | The design preview gate (above)                                                                                                                                                        |
@@ -321,10 +323,38 @@ resource_type: chapter
 ---
 ```
 
+## Downloads
+
+After the site, `builder/export.mjs` makes a PDF and an EPUB of each chapter (concept
+pages aside) and a PDF, an EPUB and an ODT of the whole book, in `/downloads/`:
+`<book>[-<chapter>]-<YYYY-MM-DD>.<ext>`, dated by the commit built, each with a
+dateless alias (a 302 in `_redirects`) for linking. The page's ⋯ → Download menu
+(edit-on-github) reads which exist from `<script id="tb-downloads">`, and the PDF is
+the page's `citation_pdf_url`.
+
+- **How:** markdown → `preprocessMarkdown` (wikilinks and concept links to their text,
+  linked to the live page; embeds; images from the book's root, the converter's
+  `<img>` widths kept; callouts as titled quotes; `%%comments%%` dropped) → pandoc
+  (`commonmark_x`) → Typst for the PDF, pandoc itself for EPUB and ODT. Each starts
+  with a front page: title, authors, publisher, published date, version (the short
+  commit), address, licence and the APA citation. Typst's own fonts (Libertinus
+  Serif): design.yaml's Source Serif 4 and Source Sans 3 come from Google Fonts at
+  reading time, not as files the builder has.
+- **Paragraph numbers** are in the PDF's margin, by the site's rule, only where the
+  export numbers exactly as many paragraphs as the built page; a page that differs
+  gets none, with a warning.
+- **Never fails the build.** A file that can't be made, or is over 20 MiB, is left
+  out with a `::warning::`, and the site publishes without it.
+- **Tools:** pandoc 3.11 (the platform's pin) and Typst 0.15.1, with checksums, in
+  `.github/actions/export-tools`. Locally: `PANDOC=… TYPST=…`, or on the PATH; without
+  them a build has no downloads and says so.
+- **Design previews** make downloads only when the pull request touches
+  `builder/export.mjs` or the tools' pins; otherwise `TB_EXPORTS=off`.
+
 ## Tests
 
 ```
-node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
+node --test test/lib.test.mjs test/catalog.test.mjs test/citations.test.mjs test/export.test.mjs test/preview.test.mjs test/automation.test.mjs test/build.test.mjs
 read -r slug repo branch < <(node test/check-live-book.mjs --pick)
 git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" ../live-book
 ./build-book.sh ../live-book --branch "$branch" --out /tmp/live-book-site

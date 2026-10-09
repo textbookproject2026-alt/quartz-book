@@ -52,6 +52,7 @@ jobs:
       head: ${{ steps.pr.outputs.head }}
       deploy: ${{ steps.pr.outputs.deploy }}
       targets: ${{ steps.plan.outputs.targets }}
+      exports: ${{ steps.exports.outputs.on }}
     steps:
       - name: Which pull request
         id: pr
@@ -78,6 +79,21 @@ jobs:
       - name: Every book on the builder
         id: plan
         run: node builder/preview.mjs plan "$PR"
+
+      # Previews make the downloads (PDF, EPUB, ODT) only when the pull request
+      # touches their code: builder/export.mjs or the tools' pins. Otherwise
+      # TB_EXPORTS=off and the preview has none; the live build always has them.
+      - name: Does it touch the exports?
+        id: exports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh pr diff "$PR" -R "$GITHUB_REPOSITORY" --name-only | grep -qE '^(builder/export\.mjs|\.github/actions/export-tools/)'; then
+            echo "on=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "on=false" >> "$GITHUB_OUTPUT"
+            echo "No export code changed: the previews have no downloads."
+          fi
 
   build:
     needs: plan
@@ -117,6 +133,12 @@ jobs:
       - name: Install Quartz plugins
         run: npx quartz plugin install
 
+      # The downloads take a while and rarely change: a preview makes them only
+      # when the pull request touches the export code (plan, below).
+      - name: pandoc and Typst, for the downloads
+        if: needs.plan.outputs.exports == 'true'
+        uses: ./.github/actions/export-tools
+
       - name: Check out the book's live branch, anonymously
         id: book
         run: |
@@ -128,6 +150,8 @@ jobs:
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Build, as a noindex preview
+        env:
+          TB_EXPORTS: ${{ needs.plan.outputs.exports == 'true' && 'on' || 'off' }}
         run: ./build-book.sh "$RUNNER_TEMP/book" --branch "$BRANCH" --preview --out "$RUNNER_TEMP/site"
 
       - name: Check it is this builder's preview of that commit

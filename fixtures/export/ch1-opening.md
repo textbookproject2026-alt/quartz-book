@@ -1,0 +1,13 @@
+---
+topic: "methods, social ontology, critical realism, social sciences"
+---
+
+# Chapter 1: Introduction to Ontological Analysis in Social Research
+
+## Introduction[^1]
+
+Consider a situation that will be familiar to anyone who has spent time in the literature of any contested field. Two research teams investigate the same phenomenon — say, the persistence of educational inequality — and both seemingly do everything right. Both draw on adequate samples, employ validated instruments, apply methods appropriate to their data, and situate their findings within established theoretical traditions. One concludes that inequality is reproduced primarily through the unequal distribution of material resources: underfunded schools, precarious household incomes, differential access to the infrastructures of educational success. The other concludes that cultural frameworks and meaning-making practices are decisive: that the dispositions, expectations, and classificatory schemes children carry into classrooms are what determine outcomes, largely independently of resource levels. Both findings are well-supported. Both teams can defend every methodological decision. And yet their conclusions appear to be in direct contradiction.
+
+The standard response to this situation is adversarial. Each side searches for the flaw in the other's design — a sampling bias, a confounded variable, an analytical sleight of hand — on the assumption that one study must simply be wrong. The quantitative researcher charges the qualitative study with subjectivity, insufficient generalisability, and the undue influence of the researcher's own interpretive framework. The qualitative researcher charges the quantitative study with reductionism, with flattening the complexity of lived experience into variables that bear no resemblance to the social processes they purport to measure. Both charges carry some weight. Neither resolves the disagreement. And so the field accumulates contradictory findings, researchers retreat into the assurance that their own methods followed established norms and therefore carry analytical merit, and the deeper question — why do equally rigorous studies produce incompatible conclusions? — goes largely unasked. The replication crisis across the social sciences has made this problem impossible to ignore: a substantial proportion of published findings, produced by competent researchers following field-standard procedures, fail to reproduce under equivalent conditions. Methodological refinement alone has not resolved this, because the problem does not originate at the methodological level.
+
+[^1]: Co-edited by Elise Wester.

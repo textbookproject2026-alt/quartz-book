@@ -66,3 +66,9 @@ rm -rf "$OUT"
 
 # 3. The builder's additions, and the check that nothing else was published.
 node "$BUILDER/builder/finish.mjs" "$WORK" "$OUT"
+
+# 4. The downloads (PDF, EPUB, ODT). Never fails the build: a file that can't be
+#    made is left out with a warning. TB_EXPORTS=off skips them. Then the
+#    allowlist check again, over what they added.
+node "$BUILDER/builder/export.mjs" "$WORK" "$OUT" || echo "::warning title=export::the exports stopped early; the site publishes without them."
+node "$BUILDER/builder/check-output.mjs" "$OUT"
