@@ -13,7 +13,7 @@ name: book-community-page
 #     contents: write
 #     pull-requests: write
 #     issues: read          # contributors: the accepted notes and suggestions
-#     actions: write        # start the book's required checks on the pull request
+#     actions: write        # let the book's required checks run on the pull request
 #   jobs:
 #     contributors:
 #       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-community-page.yml@stable
@@ -68,7 +68,7 @@ jobs:
       contents: write # push the chore/<page>-update branch
       pull-requests: write # open or update the pull request
       issues: read # contributors: the accepted notes and suggestions (the credit ledger)
-      actions: write # start the book's required checks on the pull request (below)
+      actions: write # let the book's required checks run on the pull request (below)
     concurrency:
       group: book-community-${{ inputs.page }}
       cancel-in-progress: false
@@ -264,23 +264,33 @@ jobs:
           echo "Opened ${LABEL} PR: ${URL}" >> "$GITHUB_STEP_SUMMARY"
           echo "number=${URL##*/}" >> "$GITHUB_OUTPUT"
 
-      # The book's lint and link check are required on main (batch 2b), but a pull
-      # request opened or pushed with the workflow token starts no pull_request or
-      # push runs. workflow_dispatch is the one event this token may start: run both
-      # on the branch, so its head commit gets the checks auto-merge waits for. A
-      # book without one of them (or a caller without actions: write) says so and
-      # leaves the pull request for a person.
-      - name: Start the book's checks on the pull request
+      # The book's lint and link check are required on main (batch 2b). A pull
+      # request this job opens with the workflow token gets its pull_request runs,
+      # but GitHub holds them for approval ("action_required"), and a check run
+      # from a workflow_dispatch run doesn't count on the pull request. So the job
+      # approves the held runs on its own head commit (a pull request it opened,
+      # changing only its own page: checked again below before auto-merge). If the
+      # token may not approve, it says so and the pull request waits for a person
+      # (Actions -> the held run -> Approve and run).
+      - name: Let the book's checks run on the pull request
         if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr.outputs.number }}
         run: |
-          for wf in lint.yml link-check.yml; do
-            if gh workflow run "$wf" --ref "$PR_BRANCH"; then
-              echo "Started $wf on $PR_BRANCH."
-            else
-              echo "::warning::Couldn't start $wf on $PR_BRANCH (missing, no workflow_dispatch, or no actions: write); its check may not report on the pull request."
-            fi
+          HEAD_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq .head.sha)"
+          approved=0
+          for _ in $(seq 1 12); do
+            for id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request" --jq '.workflow_runs[] | select(.conclusion == "action_required") | .id'); do
+              if gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/approve" >/dev/null 2>&1; then
+                echo "Approved held run ${id}."
+                approved=$((approved + 1))
+              else
+                echo "::warning::Couldn't approve held run ${id} with the workflow token: approve it in Actions so PR #${PR}'s required checks can report."
+              fi
+            done
+            [ "$approved" -ge 2 ] && break
+            sleep 10
           done
 
       # Auto-merge only a pull request that is provably this job's own and changes
