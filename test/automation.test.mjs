@@ -104,6 +104,12 @@ function makeBook({ editions = fixture.books[1].editions, trustedGuide = true } 
 
   const registry = structuredClone(fixture)
   registry.platform.automation_logins = ["aldogobot"]
+  registry.platform.automation_identities = [
+    "textbookproject2026-alt",
+    "Claude",
+    "Claude Code",
+    "@anthropic.com",
+  ]
   registry.books.push({
     ...structuredClone(fixture.books[1]),
     slug: "automation-fixture",
@@ -222,16 +228,37 @@ function creditedBook() {
     "---\nauthors: [Cee Writer]\n---\n\n# Chapter 3: Reality\n\nText, edited.\n",
   )
   git("add", "-A")
+  // An edit through the author site: the member as author, the site's line in the message.
   git(
     "-c",
     "user.name=Dee Direct",
     "-c",
-    "user.email=dee@example.invalid",
+    "user.email=1+dee-direct@users.noreply.github.com",
     "commit",
     "--quiet",
     "-m",
-    "Tidy chapter 3",
+    "Tidy chapter 3\n\nSent by @dee-direct via the author site.",
   )
+  // Raw git authorship, a person's or an AI tool's: never credit (batch 2b).
+  const raw = (name, email, text) => {
+    writeFileSync(
+      join(book.dir, "chapters/chapter-03.md"),
+      `---\nauthors: [Cee Writer]\n---\n\n# Chapter 3: Reality\n\n${text}\n`,
+    )
+    git("add", "-A")
+    git(
+      "-c",
+      `user.name=${name}`,
+      "-c",
+      `user.email=${email}`,
+      "commit",
+      "--quiet",
+      "-m",
+      `Edit\n\nCo-authored-by: Claude <noreply@anthropic.com>`,
+    )
+  }
+  raw("Raw Direct", "raw@example.invalid", "Text, edited again.")
+  raw("Claude", "noreply@anthropic.com", "Text, edited by a tool.")
   return book
 }
 
@@ -258,8 +285,13 @@ test("contributors: authors and editors from the frontmatter; contributors from 
     page,
     /\| Bea Reader \| 1 suggestion \| \[\[chapters\/Definitions\/Critical Realism\\\|Critical Realism\]\] \| \[#16\]\(/,
   )
-  assert.match(page, /\| Dee Direct \| 1 commit \|/)
+  assert.match(
+    page,
+    /\| Dee Direct \(\[GitHub\]\(https:\/\/github\.com\/dee-direct\)\) \| 1 commit \|/,
+  )
   for (const absent of [
+    /Raw Direct/,
+    /\| Claude|: Claude|, Claude|Claude and |Claude \(/,
     /#14/,
     /#15/,
     /Platform test/,
@@ -274,6 +306,18 @@ test("contributors: authors and editors from the frontmatter; contributors from 
   )
   assert.match(page, /## How credit works/)
   assert.match(page, /under CC-BY-4\.0, the licence/)
+})
+
+test("contributors: with features.orcid off, no ORCID link (the frontmatter keeps the iD)", async () => {
+  const book = creditedBook()
+  const registry = JSON.parse(readFileSync(book.registryPath, "utf8"))
+  registry.platform.features = { orcid: false }
+  writeFileSync(book.registryPath, JSON.stringify(registry))
+  const res = await contributorsRun(book, API, "--stdout")
+  assert.equal(res.status, 0, res.stderr)
+  assert.match(res.stdout, /## Authors\n\n- Ada Author\n/)
+  assert.doesNotMatch(res.stdout, /ORCID|orcid\.org/)
+  assert.match(readFileSync(join(book.dir, "index.md"), "utf8"), /orcid: 0000-0002-1825-0097/)
 })
 
 test("contributors: anonymous in-site proposals by the name they gave, never the App, never 'a reader'", async () => {

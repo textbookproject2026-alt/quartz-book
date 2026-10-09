@@ -53,7 +53,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { loadBook, field, isString, isStringArray, exitOnRegistryError, RegistryError } from './lib/registry.mjs';
-import { buildLedger, contributions, KINDS, pageAnchor, peopleOf } from './lib/credits.mjs';
+import { buildLedger, contributions, isAutomation, KINDS, pageAnchor, peopleOf } from './lib/credits.mjs';
 
 // The book's clone. These scripts live in the platform repo, not in the book.
 const REPO_ROOT = path.resolve(process.env.BOOK_ROOT || '.');
@@ -144,7 +144,7 @@ function readCommits() {
     const bot = isBot(name, email);
     // An anonymous proposal with no name (older ones carry no trailer) is nobody to credit.
     const proposer = bot ? proposedBy(body) : null;
-    return { sha, name, email, date, subject, proposer, bot, pages: touches.get(sha) ?? [] };
+    return { sha, name, email, date, subject, body, proposer, bot, pages: touches.get(sha) ?? [] };
   });
 }
 
@@ -204,6 +204,23 @@ async function readOverrides() {
   if (parsed == null) return {};
   if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('community/credit-overrides.yml must be a mapping (hide:, rename:, merge:, no-credit:).');
   return parsed;
+}
+
+const withoutOrcid = ({ orcid: _orcid, ...p }) => p;
+
+/** Which of these GitHub logins are accounts of type Bot (users/<login>; unknown ones aren't). */
+async function readBotLogins(logins) {
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const unique = [...new Set(logins.filter(Boolean).map((l) => l.toLowerCase()))].sort();
+  const bots = [];
+  for (const login of unique) {
+    const res = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}/users/${encodeURIComponent(login)}`, {
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: 'application/vnd.github+json', 'user-agent': 'textbook-actions (contributors)' },
+      signal: AbortSignal.timeout(30_000),
+    }).catch(() => null);
+    if (res?.ok && (await res.json())?.type === 'Bot') bots.push(login);
+  }
+  return bots;
 }
 
 /** Every closed pull request and issue, from GitHub (paged), as the API gives them. */
@@ -296,7 +313,8 @@ function renderPage({ ledger, pages, config }) {
 
   out.push('## How credit works', '');
   out.push('- **Authors** wrote the book or a chapter, and **editors** edited it. Both are named on the pages they worked on, and both are in every citation: a chapter is cited by its authors, with the book\'s editors as the book\'s; a book with editors and no authors of its own is cited by its editors.');
-  out.push('- **Contributors** are readers whose work the authors accepted: an edit proposed with *Edit this page* and merged, a note to the authors or a suggested edit the authors acted on, or a change made directly in the book\'s repository. Each is thanked at the foot of the pages they changed and listed here. Contributors are not part of the citation.');
+  out.push('- **Contributors** are readers whose work the authors accepted: an edit proposed with *Edit this page* and merged, a note to the authors or a suggested edit the authors acted on, or an edit by one of the book\'s team in the author site. Each is thanked at the foot of the pages they changed and listed here. Contributors are not part of the citation.');
+  out.push('- Only people are credited. Software that helps make the book (the platform\'s own accounts, bots, AI tools such as Claude) is never named as an author, an editor or a contributor.');
   out.push('- Something the authors decline earns no credit. Someone who sent a suggestion without signing in is credited by the name they gave.');
   out.push('- To be left off this page, or to have two names counted as one person, ask the authors: they record it in `community/credit-overrides.yml`.', '');
   out.push('---', '');
@@ -314,7 +332,13 @@ async function readConfig() {
   const logins = registry.platform?.automation_logins;
   if (!isStringArray(logins)) throw new RegistryError(`the registry has no valid platform.automation_logins (expected a list of logins, got ${JSON.stringify(logins)}).`);
   automationLogins = new Set(logins.map((l) => l.toLowerCase()));
+  const identities = registry.platform?.automation_identities ?? [];
+  if (!isStringArray(identities)) throw new RegistryError(`platform.automation_identities must be a list of names and emails (got ${JSON.stringify(identities)}).`);
   return {
+    logins,
+    identities,
+    // ORCID iDs shown and linked only while the platform's switch is on (default on).
+    orcid: registry.platform?.features?.orcid !== false,
     repo: field(book, 'content.repo', isString, 'owner/name'),
     title: field(book, 'title', isString, 'a title'),
     licence: field(book, 'licence', isString, 'an SPDX id'),
@@ -338,9 +362,19 @@ async function main() {
   // Everyone named as an author or editor anywhere in the book: credited as that, not as a contributor.
   // The registry's `authors` (who may use the author site) aren't the book's authors:
   // only the frontmatter names those.
-  const listed = [...pages.values()].flatMap((p) => [...p.authors, ...p.editors]);
   const { pulls, issues } = await readGitHub(config.repo);
-  const items = contributions({ pulls, issues, commits: readCommits(), repoUrl: `https://github.com/${config.repo}` });
+  const commits = readCommits();
+  // Only people: the registry's automation lists, plus any login GitHub says is a Bot.
+  const firstPass = isAutomation({ logins: config.logins, identities: config.identities });
+  const candidates = contributions({ pulls, issues, commits, automation: firstPass });
+  const botLogins = await readBotLogins(candidates.map((c) => c.who.github));
+  const automation = isAutomation({ logins: config.logins, identities: config.identities, botLogins });
+  for (const page of pages.values()) {
+    page.authors = page.authors.filter((p) => !automation(p)).map((p) => (config.orcid ? p : withoutOrcid(p)));
+    page.editors = page.editors.filter((p) => !automation(p)).map((p) => (config.orcid ? p : withoutOrcid(p)));
+  }
+  const listed = [...pages.values()].flatMap((p) => [...p.authors, ...p.editors]);
+  const items = contributions({ pulls, issues, commits, repoUrl: `https://github.com/${config.repo}`, automation });
   const ledger = buildLedger({ contributions: items, overrides: await readOverrides(), listed });
   const ledgerText = `${JSON.stringify(ledger, null, 2)}\n`;
   const page = renderPage({ ledger, pages, config });

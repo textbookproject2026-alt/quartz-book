@@ -5,7 +5,7 @@ import { createHash } from "node:crypto"
 import { readdirSync } from "node:fs"
 import { join } from "node:path"
 // The credit ledger's pure functions live with the book automation that writes it.
-import { pageAnchor, pageContributors } from "../automation/scripts/lib/credits.mjs"
+import { isAutomation, pageAnchor, pageContributors } from "../automation/scripts/lib/credits.mjs"
 
 export const REGISTRY_URL =
   "https://raw.githubusercontent.com/textbookproject2026-alt/textbook-registry/main/registry.json"
@@ -145,6 +145,8 @@ export function registryDigest(registry, book) {
   const platform = {
     suggest_edit_endpoint: registry.platform?.suggest_edit_endpoint ?? null,
     analytics: registry.platform?.analytics ?? null,
+    // A change to who is credited, or to the ORCID switch, rebuilds every book.
+    people: platformPeopleOf(registry),
   }
   const input = canonicalJson({ book, platform })
   return `sha256:${createHash("sha256").update(input).digest("hex")}`
@@ -868,8 +870,40 @@ const ORCID = /^(?:https?:\/\/orcid\.org\/)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])$/i
  */
 const GITHUB_LOGIN = /^@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})$/
 
-/** People from a frontmatter value: names, "A, B", or { name, orcid, github }. */
+/**
+ * What the registry's platform settings decide about people, for this build:
+ * whether ORCID iDs are shown (features.orcid, default on) and who is a machine
+ * (the automation-accounts list). prepare.mjs records it in facts.json
+ * (platformPeopleOf); finish.mjs and export.mjs set it before reading any page.
+ */
+let PLATFORM = { orcid: true, automation: () => false }
+
+/** facts.platformPeople from the registry: { orcid, logins, identities }. */
+export const platformPeopleOf = (registry) => ({
+  orcid: registry?.platform?.features?.orcid !== false,
+  logins: registry?.platform?.automation_logins ?? [],
+  identities: registry?.platform?.automation_identities ?? [],
+})
+
+export function setPlatform(p = {}) {
+  PLATFORM = {
+    orcid: p.orcid !== false,
+    automation: isAutomation({ logins: p.logins ?? [], identities: p.identities ?? [] }),
+  }
+}
+
+/**
+ * People from a frontmatter value: names, "A, B", or { name, orcid, github }.
+ * Only people (batch 2b): a name on the automation-accounts list is dropped, and
+ * an ORCID iD is dropped while the platform has ORCID switched off (the
+ * frontmatter keeps it).
+ */
 const peopleOf = (raw) =>
+  rawPeopleOf(raw)
+    .filter((p) => !PLATFORM.automation(p))
+    .map(({ orcid, ...p }) => (orcid && PLATFORM.orcid ? { ...p, orcid } : p))
+
+const rawPeopleOf = (raw) =>
   (Array.isArray(raw) ? raw : [raw]).flatMap((item) => {
     if (item && typeof item === "object") {
       const name = String(item.name ?? "").trim()
@@ -1456,8 +1490,12 @@ const NOREPLY = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.
  * platform.automation_logins, lower-cased.
  */
 export function revisionAuthor({ name = "", email = "", body = "" }, automation = new Set()) {
-  const isBot = (n, e) =>
-    /\[bot\]/i.test(n) || /\[bot\]/i.test(e) || automation.has(n.toLowerCase())
+  // A Set of logins (older callers) or isAutomation()'s test (the whole list).
+  const listed =
+    typeof automation === "function"
+      ? (n, e) => automation({ name: n, email: e })
+      : (n) => automation.has(n.toLowerCase())
+  const isBot = (n, e) => /\[bot\]/i.test(n) || /\[bot\]/i.test(e) || listed(n, e)
   const person = (n, e) => NOREPLY.exec(e)?.[1] ?? n
   if (!isBot(name, email)) return { who: person(name, email) }
   const co = [...body.matchAll(/^Co-authored-by:\s*(.+?)\s*<([^>]*)>\s*$/gim)]
