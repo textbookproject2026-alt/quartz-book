@@ -10,6 +10,12 @@ import { slugifyFilePath } from "@quartz-community/utils/path"
 import { slugUrl } from "../builder/lib.mjs"
 import { pageUrls, publishUrl, quartzUrl } from "../automation/scripts/backup-annotations.mjs"
 import { mergeIgnore } from "../automation/scripts/lychee-ignore.mjs"
+import {
+  contributorOf,
+  decisionComment,
+  MARKER,
+  reasonOf,
+} from "../automation/scripts/decision-notice.mjs"
 
 const scripts = new URL("../automation/scripts/", import.meta.url).pathname
 const fixture = JSON.parse(
@@ -216,4 +222,126 @@ test("a script run in a repo the registry doesn't know stops before writing", ()
   const res = run("gen-contributors.mjs", book)
   assert.equal(res.status, 1)
   assert.match(res.stderr, /no book with slug "nobody".*Nothing was written\./)
+})
+
+// --- the decision notice (book-decision-notice.yml) ----------------------------------
+
+const BOOK = {
+  site: { domain: "book.example.invalid" },
+  content: { live_branch: "main", drafts_branch: "drafts" },
+}
+// Bodies as suggest-edit-function writes them.
+const PR_BODY = [
+  "### Summary",
+  "",
+  "```text",
+  "Fixed the spelling of receive.",
+  "```",
+  "",
+  "**File:** [`chapters/chapter-03.md`](https://github.com/o/b/blob/drafts/chapters/chapter-03.md)",
+  "**Where:** ¶2",
+  "",
+  "---",
+  "",
+  "**Proposed by:** @ada-l (signed in with GitHub)",
+  "",
+  "_proposed with the in-site editor. Review **Files changed**, then merge into `drafts` or close._",
+].join("\n")
+const NOTE_BODY = [
+  "**File:** [`chapters/chapter-03.md`](https://github.com/o/b/blob/main/chapters/chapter-03.md)",
+  "**Where:** [¶4](https://book.example.invalid/chapters/chapter-03#p4)",
+  "",
+  "### Suggested edit",
+  "",
+  "---",
+  "",
+  "**Submitted by:** @ada-l (signed in with GitHub)",
+].join("\n")
+const person = (login, body, at) => ({ user: { login, type: "User" }, body, created_at: at })
+
+test("decision notice: the signed-in contributor only; an anonymous one is nobody to tell", () => {
+  assert.equal(contributorOf(PR_BODY), "ada-l")
+  assert.equal(contributorOf(NOTE_BODY), "ada-l")
+  assert.equal(contributorOf("**Submitted by:** `@ada-l`"), null)
+  assert.equal(contributorOf("**Proposed by:** `A Reader` (`r***@example.org`)"), null)
+  const event = {
+    pull_request: {
+      number: 7,
+      body: "**Submitted by:** `Ada`",
+      merged: true,
+      base: { ref: "drafts" },
+    },
+  }
+  assert.equal(decisionComment({ event, book: BOOK, items: [] }), null)
+})
+
+test("decision notice: a merged proposal into drafts is accepted, with the maintainer's word and the page", () => {
+  const event = {
+    pull_request: { number: 7, body: PR_BODY, merged: true, base: { ref: "drafts" } },
+  }
+  const items = [
+    person("ada-l", "Happy to change it.", "2026-10-09T10:00:00Z"),
+    person("BrandonAndCaroline", "Good catch,\nthanks!", "2026-10-09T09:00:00Z"),
+    {
+      user: { login: "textbook-suggest-edit[bot]", type: "Bot" },
+      body: "bot",
+      created_at: "2026-10-09T11:00:00Z",
+    },
+  ]
+  assert.equal(
+    decisionComment({ event, book: BOOK, items }),
+    [
+      MARKER,
+      "@ada-l, the authors have accepted your proposed edit. Thank you for it.",
+      "",
+      "@BrandonAndCaroline wrote:",
+      "",
+      "> Good catch,\n> thanks!",
+      "",
+      "It is in the book's drafts now, and reaches the live page when the authors next publish: https://book.example.invalid/chapters/chapter-03",
+    ].join("\n"),
+  )
+})
+
+test("decision notice: closed unmerged is declined, a review counts as the reason, no page link", () => {
+  const event = {
+    pull_request: { number: 7, body: PR_BODY, merged: false, base: { ref: "drafts" } },
+  }
+  const items = [
+    person("BrandonAndCaroline", "First thought.", "2026-10-09T09:00:00Z"),
+    {
+      user: { login: "caro", type: "User" },
+      body: "We keep the original wording.",
+      submitted_at: "2026-10-09T12:00:00Z",
+    },
+  ]
+  const text = decisionComment({ event, book: BOOK, items })
+  assert.match(text, /@ada-l, the authors have declined your proposed edit\./)
+  assert.match(text, /@caro wrote:\n\n> We keep the original wording\.$/)
+  assert.ok(!text.includes("https://book.example.invalid"))
+  // No comment from anyone: just the decision.
+  assert.equal(
+    decisionComment({ event, book: BOOK, items: [] }),
+    `${MARKER}\n@ada-l, the authors have declined your proposed edit. Thank you for it.`,
+  )
+})
+
+test("decision notice: a note on a paragraph, closed as completed or not planned", () => {
+  const done = decisionComment({
+    event: { issue: { number: 9, body: NOTE_BODY, state_reason: "completed" } },
+    book: BOOK,
+    items: [],
+  })
+  assert.match(done, /accepted your note on ¶4\./)
+  assert.match(done, /The page: https:\/\/book\.example\.invalid\/chapters\/chapter-03#p4$/)
+  const no = decisionComment({
+    event: { issue: { number: 9, body: NOTE_BODY, state_reason: "not_planned" } },
+    book: BOOK,
+    items: [],
+  })
+  assert.match(no, /declined your note on ¶4\./)
+  assert.equal(
+    reasonOf([person("x", `${MARKER} old notice`, "2026-01-01T00:00:00Z")], "ada-l"),
+    null,
+  )
 })
