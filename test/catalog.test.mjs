@@ -19,6 +19,13 @@ import {
   creatorsOf,
   editorsOf,
   CREDIT_ROLES,
+  addAfterArticle,
+  addAfterTitle,
+  bylineHtml,
+  contributorsBackMatter,
+  creditsBlockHtml,
+  creditsFootHtml,
+  ignorePatternsFor,
   cutAtWord,
   dateOnly,
   firstParagraph,
@@ -642,4 +649,79 @@ test("CSL: an edited volume has editor and no author; a chapter carries its book
   )
   assert.deepEqual(ch.author, [{ family: "Writer", given: "Cee" }])
   assert.deepEqual(ch.editor, [{ family: "Itor", given: "Ed" }])
+})
+
+// --- Credit on the page (batch 2a) ------------------------------------------------
+
+const ledger = {
+  version: 1,
+  contributors: [
+    {
+      name: "gobi10k",
+      github: "gobi10k",
+      counts: { edit: 0, note: 1, suggestion: 0, commit: 0 },
+      contributions: [
+        { kind: "note", ref: "#12", url: "u", date: "2026-10-09", pages: ["chapters/c.md"] },
+      ],
+    },
+    {
+      name: "Bea <Reader>",
+      counts: { edit: 0, note: 0, suggestion: 1, commit: 0 },
+      contributions: [
+        { kind: "suggestion", ref: "#16", url: "u", date: "2026-10-09", pages: ["chapters/d.md"] },
+      ],
+    },
+  ],
+}
+
+test("the byline, the chapter's contributors and the front page's credits: escaped, linked, absent when empty", () => {
+  assert.equal(
+    bylineHtml({ creators: [{ name: "A" }, { name: "B & C" }], editors: [{ name: "E" }] }),
+    '<p class="tb-byline">By A and B &amp; C<span class="tb-sep" aria-hidden="true">·</span>Edited by E</p>',
+  )
+  assert.equal(bylineHtml({ creators: [], editors: [] }), "")
+  const many = Array.from({ length: 11 }, (_, i) => ({ name: `P${i}` }))
+  assert.equal(
+    creditsFootHtml(many, "/community/contributors#page-chapters-c"),
+    '<p class="tb-credits-foot"><a href="/community/contributors#page-chapters-c">With contributions from P0, P1, P2, P3, P4, P5, P6, P7 and 3 others.</a></p>',
+  )
+  assert.equal(
+    creditsFootHtml([{ name: "<b>" }], ""),
+    '<p class="tb-credits-foot">With contributions from &lt;b&gt;.</p>',
+  )
+  assert.equal(creditsFootHtml([], "/x"), "")
+  assert.equal(
+    creditsBlockHtml({ creators: [{ name: "A" }], editors: [] }, 1, "/community/contributors"),
+    '<div class="tb-credits-block" role="note" aria-label="Credits"><p><span class="tb-role" data-role="author">Author</span> A</p><p><a href="/community/contributors"><span class="tb-role" data-role="contributor">Contributor</span> 1 person has contributed: see who, and how credit works</a></p></div>',
+  )
+  const html =
+    '<h1 class="article-title">T</h1><p class="content-meta">x</p><article><p>Text</p></article><hr/>'
+  assert.equal(
+    addAfterTitle(html, "<b>by</b>"),
+    '<h1 class="article-title">T</h1><b>by</b><p class="content-meta">x</p><article><p>Text</p></article><hr/>',
+  )
+  assert.equal(
+    addAfterArticle(html, "<i>foot</i>"),
+    '<h1 class="article-title">T</h1><p class="content-meta">x</p><article><p>Text</p></article><i>foot</i><hr/>',
+  )
+  assert.equal(addAfterTitle("<p>no title</p>", "<b>x</b>"), "<p>no title</p>")
+})
+
+test("the catalog carries the ledger and each page's contributors (version stays 1); the overrides file is never published", () => {
+  const pages = [page("index.md", "index"), page("chapters/c.md", "chapters/c", { title: "C" })]
+  const c = buildCatalog({ facts: bookFacts, pages, credits: ledger })
+  assert.equal(c.version, 1)
+  assert.deepEqual(c.credits, ledger)
+  assert.deepEqual(c.pages.find((p) => p.path === "/chapters/c").contributors, [
+    { name: "gobi10k", github: "gobi10k" },
+  ])
+  assert.ok(!("credits" in buildCatalog({ facts: bookFacts, pages })))
+  assert.ok(ignorePatternsFor(["chapters", "community"]).includes("community/credit-overrides.yml"))
+})
+
+test("the exports' Contributors page: names only, or nothing", () => {
+  const blocks = contributorsBackMatter([{ name: "gobi10k" }, { name: "Bea" }])
+  assert.equal(blocks[1].t, "Header")
+  assert.match(JSON.stringify(blocks[2]), /"With"/)
+  assert.deepEqual(contributorsBackMatter([]), [])
 })

@@ -154,7 +154,11 @@ function builderCopy() {
   const dir = mkdtempSync(join(scratch, "builder-"))
   cpSync(join(ROOT, "builder"), join(dir, "builder"), { recursive: true })
   cpSync(join(ROOT, "quartz.lock.json"), join(dir, "quartz.lock.json"))
-  // lib.mjs imports nothing from node_modules, so the copy needs none.
+  // lib.mjs imports the credit ledger's pure functions (batch 2a), which the
+  // workflows' full checkout has; nothing from node_modules, so the copy needs none.
+  cpSync(join(ROOT, "automation/scripts/lib"), join(dir, "automation/scripts/lib"), {
+    recursive: true,
+  })
   return dir
 }
 
