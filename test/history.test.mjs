@@ -259,6 +259,15 @@ const histFiles = {
         automation: true,
         message: "Create c.md",
         body: "",
+        path: "chapters/old c.md",
+      },
+      {
+        sha: "d".repeat(40),
+        date: "2026-08-01T10:00:00Z",
+        who: "ann-a",
+        message: "Update c.md",
+        body: "",
+        path: "chapters/c.md",
       },
     ],
     drafts: [
@@ -307,6 +316,14 @@ test("history.json: per page, published and being edited, with roles and summari
             who: "the platform",
             role: null,
             summary: "First published",
+            path: "chapters/old c.md",
+          },
+          {
+            sha: "d".repeat(40),
+            date: "2026-08-01",
+            who: "ann-a",
+            role: "author",
+            summary: "Text changed",
           },
         ],
         drafts: [
@@ -331,7 +348,7 @@ test("the swimlane: a static SVG, lanes, a dot per change with its summary, rele
   assert.match(svg, /^<svg class="tb-swimlane" viewBox="0 0 760 \d+" role="img"/)
   for (const lane of ["Proposed", "Being edited", "Published"])
     assert.ok(svg.includes(`>${lane}</text>`))
-  assert.equal((svg.match(/<circle class="tb-swim-dot" data-lane="2"/g) ?? []).length, 2)
+  assert.equal((svg.match(/<circle class="tb-swim-dot" data-lane="2"/g) ?? []).length, 3)
   assert.equal((svg.match(/<circle class="tb-swim-dot" data-lane="1"/g) ?? []).length, 1)
   assert.ok(svg.includes('<line class="tb-swim-release"'))
   assert.ok(svg.includes(">2026.1</text>"))
