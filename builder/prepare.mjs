@@ -40,7 +40,10 @@ import {
   historyData,
   historyPageMarkdown,
   pageTitle,
+  platformPeopleOf,
+  setPlatform,
 } from "./lib.mjs"
+import { isAutomation } from "../automation/scripts/lib/credits.mjs"
 import { quartzUrl } from "../automation/scripts/backup-annotations.mjs"
 
 const BUILDER = resolve(import.meta.dirname, "..")
@@ -63,6 +66,7 @@ try {
 
   const config = JSON.parse(readFileSync(join(book, "textbook.config.json"), "utf8"))
   const registry = await readRegistry()
+  setPlatform(platformPeopleOf(registry))
   const entry = findBook(registry, config.slug)
   const opts = bookOptions(registry, entry, branch, { preview: process.env.PREVIEW === "1" })
 
@@ -140,6 +144,7 @@ try {
     bookCommitDate: git(book, "show", "-s", "--format=%cI", "HEAD"),
     builderCommit: git(BUILDER, "rev-parse", "HEAD") + (builderDirty ? "-dirty" : ""),
     registryDigest: registryDigest(registry, entry),
+    platformPeople: platformPeopleOf(registry),
     status: entry.status,
     contentsOrder: order,
   }
@@ -172,9 +177,7 @@ try {
     throw new BuildRefused(
       "the book checkout is shallow, so page histories would be cut short. Fetch the whole history (no --depth).",
     )
-  const automation = new Set(
-    (registry.platform?.automation_logins ?? []).map((l) => l.toLowerCase()),
-  )
+  const automation = isAutomation(platformPeopleOf(registry))
   const info = parseCommitInfo(
     git(book, "log", "--no-merges", "-z", `--format=${COMMIT_INFO_FORMAT}`),
   )

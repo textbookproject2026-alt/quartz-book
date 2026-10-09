@@ -37,12 +37,18 @@ import {
   redirectsFile,
   strayMessage,
   walkFiles,
+  setPlatform,
 } from "./lib.mjs"
 import { citeData } from "./citations.mjs"
-import { applyOverrides, pageContributors } from "../automation/scripts/lib/credits.mjs"
+import {
+  applyOverrides,
+  isAutomation,
+  pageContributors,
+} from "../automation/scripts/lib/credits.mjs"
 
 const [workDir, outDir] = process.argv.slice(2)
 const facts = JSON.parse(readFileSync(join(workDir, "facts.json"), "utf8"))
+setPlatform(facts.platformPeople)
 
 const rel = (file) => relative(outDir, file).split(sep).join("/")
 const write = (path, text) => {
@@ -112,7 +118,14 @@ const readOptional = (rel, parse) => {
     return null
   }
 }
-const rawLedger = readOptional("community/credits.json", JSON.parse)
+// Only people (batch 2b): a ledger written before the automation-accounts list
+// grew still never shows a machine, an AI tool or the platform's own account.
+const automation = isAutomation(facts.platformPeople ?? {})
+const readLedger = readOptional("community/credits.json", JSON.parse)
+const rawLedger = readLedger && {
+  ...readLedger,
+  contributors: (readLedger.contributors ?? []).filter((p) => !automation(p)),
+}
 const listed = catalogPages.flatMap((p) => [
   ...creatorsOf(p.frontmatter),
   ...editorsOf(p.frontmatter),

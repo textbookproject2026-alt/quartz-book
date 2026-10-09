@@ -140,3 +140,48 @@ test("a book with editors only: an edited volume, cited by its editors (Ed./Eds.
   const one = edited({ editors: ["Ed Itor"] }).book
   assert.match(text(one.apa), /^Itor, E\. \(Ed\.\)\. \(2026\)/)
 })
+
+// --- Only people, and the ORCID switch (batch 2b) ----------------------------------
+
+test("features.orcid off: no iD anywhere (people, meta, JSON-LD); on again: back; no AI tool is ever an author", async () => {
+  const { headTags, jsonLd, setPlatform, platformPeopleOf } = await import("../builder/lib.mjs")
+  const fm = {
+    authors: [{ name: "Ada Author", orcid: "0000-0002-1825-0097" }, "Claude", "Claude Code"],
+    editors: [{ name: "Ed Itor", orcid: "0000-0002-1694-233X" }],
+  }
+  const build = () => {
+    const b = bookMetadata(facts, {
+      relPath: "index.md",
+      slug: "index",
+      frontmatter: fm,
+      markdown: "# T\n",
+    })
+    return { b, html: headTags(b), ld: JSON.stringify(jsonLd(b)), csl: JSON.stringify(cslItem(b)) }
+  }
+  const registry = (orcid) => ({
+    platform: {
+      features: { orcid },
+      automation_logins: ["aldogobot"],
+      automation_identities: ["Claude", "Claude Code", "@anthropic.com"],
+    },
+  })
+  try {
+    setPlatform(platformPeopleOf(registry(false)))
+    const off = build()
+    assert.deepEqual(off.b.creators, [{ name: "Ada Author" }])
+    for (const out of [off.html, off.ld, off.csl]) {
+      assert.doesNotMatch(out, /orcid|0000-0002-1825-0097|1694-233X/i)
+      assert.doesNotMatch(out, /Claude/)
+    }
+    setPlatform(platformPeopleOf(registry(true)))
+    const on = build()
+    assert.match(
+      on.html,
+      /citation_author_orcid" content="https:\/\/orcid\.org\/0000-0002-1825-0097"/,
+    )
+    assert.match(on.ld, /https:\/\/orcid\.org\/0000-0002-1825-0097/)
+    assert.doesNotMatch(on.html + on.ld + on.csl, /Claude/)
+  } finally {
+    setPlatform({})
+  }
+})

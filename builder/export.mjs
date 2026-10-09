@@ -50,6 +50,7 @@ import {
   preprocessMarkdown,
   splitTitle,
   withoutContents,
+  setPlatform,
 } from "./lib.mjs"
 import { formatAll } from "./citations.mjs"
 
@@ -101,6 +102,7 @@ console.log(
 
 function main() {
   const facts = JSON.parse(readFileSync(join(workDir, "facts.json"), "utf8"))
+  setPlatform(facts.platformPeople)
   const catalog = JSON.parse(readFileSync(join(outDir, CATALOG_PATH), "utf8"))
   const content = join(workDir, "content")
   const book = catalog.metadata

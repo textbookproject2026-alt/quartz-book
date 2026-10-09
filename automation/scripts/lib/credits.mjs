@@ -12,11 +12,20 @@
 //   edit        a proposed edit (pull request labelled proposed-edit) merged
 //   note        a note on a paragraph (issue labelled section-note) closed as completed
 //   suggestion  a suggested edit (issue labelled suggested-edit) closed as completed
-//   commit      a direct commit by someone who isn't a listed author or editor
+//   commit      an edit a member of the book made through the author site
 // Declined items earn nothing. Anonymous suggesters are credited by the name they
-// gave. Bots and the platform's automation accounts never count. Listed authors
-// and editors aren't also listed as contributors. A `no-credit` label, or the
-// overrides file's no-credit list, takes an item out.
+// gave. Listed authors and editors aren't also listed as contributors. A
+// `no-credit` label, or the overrides file's no-credit list, takes an item out.
+//
+// Only people are credited (Alec, 9 Oct 2026, batch 2b): credit comes from an
+// allowlist of sources, never from raw git authorship. A commit's author,
+// committer or Co-authored-by trailer earns nothing on its own: a commit counts
+// only when the author site made it for a member (its "Sent by @login via the
+// author site." line, or a member's platform noreply address), or when it
+// carries the name a reader gave (Proposed-by). After that, isAutomation() drops
+// anyone on the registry's automation-accounts list (automation_logins and
+// automation_identities), any [bot] login and any GitHub account of type Bot:
+// Claude, the platform's Apps and its own account are never credited.
 //
 // Deterministic: contributors sorted by name, each one's contributions by
 // reference (numbered items first, then commits by date and sha), no dates of
@@ -30,6 +39,29 @@ export const KINDS = ['edit', 'note', 'suggestion', 'commit'];
 const LOGIN = /^@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})$/;
 const ORCID = /^(?:https?:\/\/orcid\.org\/)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])$/i;
 const NOREPLY = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.github\.com$/i;
+/** The line the author site writes in every commit it makes for a member. */
+export const AUTHOR_SITE = /^Sent by @([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}) via the author site\.$/m;
+/** A member's platform noreply address (batch 2b: members without GitHub). */
+export const MEMBER_EMAIL = /^m-([a-z0-9][a-z0-9-]{0,39})@users\.noreply\.confused4now\.org$/i;
+
+/**
+ * Who is never credited. `logins` and `identities` are the registry's
+ * platform.automation_logins and platform.automation_identities; `botLogins` the
+ * GitHub accounts found to be of type Bot. An identity "@example.com" matches an
+ * email domain; any other matches a whole name, login or email. Case-insensitive.
+ * -> (who: { name, github?, email? }) => boolean
+ */
+export function isAutomation({ logins = [], identities = [], botLogins = [] } = {}) {
+  const whole = new Set([...logins, ...botLogins, ...identities.filter((i) => !i.startsWith('@'))].map((x) => x.toLowerCase()));
+  const domains = identities.filter((i) => i.startsWith('@')).map((d) => d.toLowerCase());
+  return (who) => {
+    const keys = [who?.name, who?.github, who?.email].filter(Boolean).map((x) => String(x).trim().toLowerCase());
+    if (keys.some((k) => k.includes('[bot]') || whole.has(k))) return true;
+    const githubFromEmail = NOREPLY.exec(who?.email ?? '')?.[1]?.toLowerCase();
+    if (githubFromEmail && (githubFromEmail.endsWith('[bot]') || whole.has(githubFromEmail))) return true;
+    return keys.some((k) => k.includes('@') && domains.some((d) => k.endsWith(d)));
+  };
+}
 
 const list = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : v == null ? [] : [v]);
 const day = (iso) => String(iso ?? '').slice(0, 10);
@@ -80,12 +112,14 @@ const labelled = (item, name) =>
  *   html_url, head.sha). Merged ones labelled proposed-edit count.
  * `issues`: closed issues (number, state_reason, closed_at, body, labels, html_url).
  *   Closed as completed, of a kind issueKind knows, count.
- * `commits`: [{ sha, name, email, date, subject, proposer, bot, pages }], newest
- *   first, merges left out. A commit counts unless it is a bot's (with no
- *   proposer's name), touches none of the book's pages, or is how a counted pull
- *   request landed: its head commit, or a squash ending "(#n)".
+ * `commits`: [{ sha, name, email, date, subject, body, proposer, pages }], newest
+ *   first, merges left out. A commit counts only if the author site made it for a
+ *   member (AUTHOR_SITE in its body, or a MEMBER_EMAIL author) or it carries a
+ *   reader's Proposed-by name, and it touches the book's pages and isn't how a
+ *   counted pull request landed (its head commit, or a squash ending "(#n)").
+ * `automation`: isAutomation()'s test; whoever it matches is never credited.
  */
-export function contributions({ pulls = [], issues = [], commits = [], repoUrl = '' }) {
+export function contributions({ pulls = [], issues = [], commits = [], repoUrl = '', automation = isAutomation() }) {
   const out = [];
   const prNumbers = new Set();
   const prHeads = new Set();
@@ -108,11 +142,15 @@ export function contributions({ pulls = [], issues = [], commits = [], repoUrl =
     if (prHeads.has(c.sha)) continue;
     const squashed = /\(#(\d+)\)\s*$/.exec(c.subject ?? '');
     if (squashed && prNumbers.has(Number(squashed[1]))) continue;
-    if (c.bot && !c.proposer) continue;
     // Work on the repository (workflows, settings) isn't work on the book's pages.
     if (!c.pages?.length) continue;
-    const login = c.proposer ? null : NOREPLY.exec(c.email ?? '')?.[1];
-    const who = { name: c.proposer ?? c.name, ...(login ? { github: login } : {}) };
+    const viaSite = AUTHOR_SITE.exec(c.body ?? '')?.[1];
+    const member = MEMBER_EMAIL.exec(c.email ?? '')?.[1];
+    let who;
+    if (c.proposer) who = { name: c.proposer };
+    else if (viaSite) who = { name: c.name || viaSite, github: viaSite, email: c.email };
+    else if (member) who = { name: c.name, email: c.email };
+    else continue; // raw git authorship never earns credit
     out.push({
       who,
       kind: 'commit',
@@ -122,7 +160,8 @@ export function contributions({ pulls = [], issues = [], commits = [], repoUrl =
       pages: c.pages ?? [],
     });
   }
-  return out;
+  // Belt and braces, on every source: no machine, AI tool or platform account.
+  return out.filter((c) => !automation(c.who)).map(({ who: { email: _email, ...who }, ...c }) => ({ who, ...c }));
 }
 
 const personFrom = (a) => (a?.login ? { name: a.login, github: a.login } : a?.name ? { name: a.name } : null);
