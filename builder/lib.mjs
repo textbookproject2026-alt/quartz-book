@@ -842,18 +842,35 @@ const ORCID = /^(?:https?:\/\/orcid\.org\/)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])$/i
  * 0000-0000-0000-000X form, whether given bare or as its orcid.org URL; one
  * that isn't an iD is dropped, the name kept.
  */
-export const creatorsOf = (frontmatter = {}) => {
-  const raw = frontmatter.authors ?? frontmatter.author
-  const items = Array.isArray(raw) ? raw : [raw]
-  return items.flatMap((item) => {
+const GITHUB_LOGIN = /^@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})$/
+
+/** People from a frontmatter value: names, "A, B", or { name, orcid, github }. */
+const peopleOf = (raw) =>
+  (Array.isArray(raw) ? raw : [raw]).flatMap((item) => {
     if (item && typeof item === "object") {
       const name = String(item.name ?? "").trim()
       if (!name) return []
-      const id = ORCID.exec(String(item.orcid ?? "").trim())?.[1]?.toUpperCase()
-      return [id ? { name, orcid: id } : { name }]
+      const orcid = ORCID.exec(String(item.orcid ?? "").trim())?.[1]?.toUpperCase()
+      const github = GITHUB_LOGIN.exec(String(item.github ?? "").trim())?.[1]
+      return [{ name, ...(orcid ? { orcid } : {}), ...(github ? { github } : {}) }]
     }
     return asList(item).map((name) => ({ name }))
   })
+
+export const creatorsOf = (frontmatter = {}) => peopleOf(frontmatter.authors ?? frontmatter.author)
+
+/** A page's (or the book's) editors: `editors:` or `editor:`, as creatorsOf. No fallback. */
+export const editorsOf = (frontmatter = {}) => peopleOf(frontmatter.editors ?? frontmatter.editor)
+
+/**
+ * The platform's three credit roles, and the CRediT terms each stands for
+ * (https://credit.niso.org), for DOIs and ORCID later. Authors and editors are
+ * cited; contributors are acknowledged, never cited.
+ */
+export const CREDIT_ROLES = {
+  author: { label: "Author", credit: ["Writing – original draft", "Conceptualization"] },
+  editor: { label: "Editor", credit: ["Writing – review & editing", "Supervision"] },
+  contributor: { label: "Contributor", credit: ["Writing – review & editing"] },
 }
 
 /** A page's authors' names, from its frontmatter (creatorsOf). */
@@ -1079,6 +1096,7 @@ const docOf = (page) => ({
 export function bookMetadata(facts, index) {
   const { frontmatter: fm, markdown, created } = docOf(index)
   const creators = creatorsOf(fm)
+  const editors = editorsOf(fm)
   // index.md's own title (frontmatter, else its H1), else the registry's: an
   // index without either is titled "index" by Quartz.
   const h1 = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown)?.[1]
@@ -1088,7 +1106,10 @@ export function bookMetadata(facts, index) {
   return {
     type: RESOURCE_TYPES.includes(fm.resource_type) ? fm.resource_type : facts.type || "book",
     title: title || facts.title,
-    creators: creators.length ? creators : asList(facts.authors).map((name) => ({ name })),
+    // An edited volume (editors, no book-level authors) is cited by its editors;
+    // otherwise index.md's authors, else the registry's maintainer.
+    creators: creators.length || editors.length ? creators : maintainerOf(facts),
+    editors,
     publisher: facts.publisher || PUBLISHER,
     created: dateOnly(fm.created) || dateOnly(created),
     published: dateOnly(fm.published) || dateOnly(facts.bookCommitDate),
@@ -1107,12 +1128,15 @@ export function bookMetadata(facts, index) {
   }
 }
 
+const maintainerOf = (facts) => asList(facts.authors).map((name) => ({ name }))
+
 /** A page's metadata: its own where it says, else its book's (bookMetadata). */
 export function pageMetadata(page, book, facts) {
   if (page?.slug === "index") return book
   const { frontmatter: fm, markdown, title, created } = docOf(page)
   const tags = tagsOf(fm, page?.indexedTags)
   const creators = creatorsOf(fm)
+  const editors = editorsOf(fm)
   const doi = String(fm.doi ?? "").trim()
   const type = RESOURCE_TYPES.includes(fm.resource_type)
     ? fm.resource_type
@@ -1127,7 +1151,15 @@ export function pageMetadata(page, book, facts) {
         .split("/")
         .pop()
         .replace(/\.md$/i, ""),
-    creators: creators.length ? creators : book.creators,
+    // The page's authors, else the book's, else (an edited volume's chapter) the
+    // registry's maintainer: batch 1's chain.
+    creators: creators.length
+      ? creators
+      : book.creators.length
+        ? book.creators
+        : maintainerOf(facts),
+    // The page's editors, else the book's: the container's editors in a citation.
+    editors: editors.length ? editors : book.editors,
     publisher: book.publisher,
     created: dateOnly(fm.created) || dateOnly(created),
     published: dateOnly(fm.published) || dateOnly(facts.bookCommitDate),
@@ -1171,12 +1203,26 @@ const BOOKISH = {
 }
 
 /** The schema.org object for a page: Book (or its book type) on the front page, Chapter, DefinedTerm. */
-export function jsonLd(meta, { pdfUrl = "" } = {}) {
-  const people = meta.creators.map((c) => ({
-    "@type": "Person",
-    name: c.name,
-    ...(c.orcid ? { sameAs: `https://orcid.org/${c.orcid}` } : {}),
-  }))
+/** schema.org Persons: ORCID (and GitHub, when given) as sameAs. */
+export const ldPeople = (people = []) =>
+  people.map((c) => {
+    const same = [
+      ...(c.orcid ? [`https://orcid.org/${c.orcid}`] : []),
+      ...(c.github ? [`https://github.com/${c.github}`] : []),
+    ]
+    return {
+      "@type": "Person",
+      name: c.name,
+      ...(same.length ? { sameAs: same.length === 1 ? same[0] : same } : {}),
+    }
+  })
+
+/**
+ * `contributors` are the page's (or the book's) credited contributors (the
+ * credit ledger): acknowledged in JSON-LD and DC.contributor, never cited.
+ */
+export function jsonLd(meta, { pdfUrl = "", contributors = [] } = {}) {
+  const people = ldPeople(meta.creators)
   const common = {
     name: meta.title,
     url: meta.url,
@@ -1186,8 +1232,12 @@ export function jsonLd(meta, { pdfUrl = "" } = {}) {
     isAccessibleForFree: true,
     ...(meta.doi ? { identifier: `https://doi.org/${meta.doi}` } : {}),
   }
+  const editors = ldPeople(meta.editors)
   const work = {
-    author: people,
+    ...(people.length ? { author: people } : {}),
+    // A chapter's editors are its book's (isPartOf, below).
+    ...(editors.length && !meta.book ? { editor: editors } : {}),
+    ...(contributors.length ? { contributor: ldPeople(contributors) } : {}),
     publisher: { "@type": "Organization", name: meta.publisher },
     ...(meta.created ? { dateCreated: meta.created } : {}),
     ...(meta.published ? { datePublished: meta.published } : {}),
@@ -1202,7 +1252,12 @@ export function jsonLd(meta, { pdfUrl = "" } = {}) {
         }
       : {}),
   }
-  const book = meta.book && { "@type": "Book", name: meta.book.title, url: meta.book.url }
+  const book = meta.book && {
+    "@type": "Book",
+    name: meta.book.title,
+    url: meta.book.url,
+    ...(editors.length ? { editor: editors } : {}),
+  }
   const body =
     meta.type === "concept"
       ? {
@@ -1221,7 +1276,7 @@ export function jsonLd(meta, { pdfUrl = "" } = {}) {
 }
 
 /** The head tags for one page, as one HTML string. `pdfUrl` once its export exists. */
-export function headTags(meta, { pdfUrl = "" } = {}) {
+export function headTags(meta, { pdfUrl = "", contributors = [] } = {}) {
   const tags = []
   const m = (name, content) =>
     content && tags.push(`<meta name="${name}" content="${escAttr(content)}">`)
@@ -1230,6 +1285,9 @@ export function headTags(meta, { pdfUrl = "" } = {}) {
     m("citation_author", c.name)
     if (c.orcid) m("citation_author_orcid", `https://orcid.org/${c.orcid}`)
   }
+  // Zotero's Embedded Metadata translator reads citation_editor (a chapter's are
+  // its book's editors, as a book section's are). Contributors are never cited.
+  for (const e of meta.editors ?? []) m("citation_editor", e.name)
   m("citation_publication_date", meta.published.replace(/-/g, "/"))
   m("citation_publisher", meta.publisher)
   m("citation_language", meta.lang)
@@ -1246,6 +1304,7 @@ export function headTags(meta, { pdfUrl = "" } = {}) {
   tags.push(`<link rel="schema.DC" href="http://purl.org/dc/elements/1.1/">`)
   m("DC.title", meta.title)
   for (const c of meta.creators) m("DC.creator", c.name)
+  for (const c of [...(meta.editors ?? []), ...contributors]) m("DC.contributor", c.name)
   m("DC.publisher", meta.publisher)
   m("DC.date.created", meta.created)
   m("DC.date.issued", meta.published)
@@ -1258,7 +1317,9 @@ export function headTags(meta, { pdfUrl = "" } = {}) {
   m("DC.language", meta.lang)
   m("DC.rights", `${meta.licence.id} (${meta.licence.url}), ${meta.rights}`)
   tags.push(`<link rel="license" href="${escAttr(meta.licence.url)}">`)
-  tags.push(`<script type="application/ld+json">${scriptJson(jsonLd(meta, { pdfUrl }))}</script>`)
+  tags.push(
+    `<script type="application/ld+json">${scriptJson(jsonLd(meta, { pdfUrl, contributors }))}</script>`,
+  )
   return tags.join("")
 }
 
@@ -1299,7 +1360,10 @@ export function cslItem(meta) {
           ? "book"
           : "article",
     title: meta.title,
-    author: meta.creators.map((c) => cslName(c.name)),
+    // An edited volume has editors and no author: CSL styles cite it by them (Ed./Eds.).
+    ...(meta.creators.length ? { author: meta.creators.map((c) => cslName(c.name)) } : {}),
+    // A chapter's editors are its container's, as CSL reads `editor` on a chapter.
+    ...(meta.editors?.length ? { editor: meta.editors.map((c) => cslName(c.name)) } : {}),
     publisher: meta.publisher,
     issued: dateParts(meta.published),
     URL: meta.url,
@@ -1756,6 +1820,10 @@ export function numberBlocks(blocks, mark = false) {
   return n
 }
 
+/** "A", "A and B", "A, B and C". */
+export const joinNames = (names) =>
+  names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
+
 /** Text as pandoc inlines: Str and Space. */
 export const pandocWords = (text) =>
   String(text)
@@ -1780,6 +1848,15 @@ export function frontPage(meta, { version, apa }) {
       c: [
         ["front-page", [], []],
         [
+          // Authors are pandoc's title block; editors (the book's, or a chapter's container's) here.
+          ...(meta.editors?.length
+            ? [
+                line(
+                  meta.book ? "In a book edited by" : "Edited by",
+                  pandocWords(joinNames(meta.editors.map((e) => e.name))),
+                ),
+              ]
+            : []),
           line("Publisher", pandocWords(meta.publisher)),
           line("Published", pandocWords(meta.published || "not yet")),
           line("Version", pandocWords(version)),
