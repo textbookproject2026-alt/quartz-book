@@ -147,6 +147,12 @@ jobs:
           sleep 1
           node test/explorer-order.mjs http://127.0.0.1:8802/ "$RUNNER_TEMP/live-book"
 
+      - name: Phone audit (batch 2b's seven checks, 360/390/412, light and dark)
+        run: |
+          node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8803 &
+          sleep 1
+          node test/phone-audit.mjs http://127.0.0.1:8803/ "$RUNNER_TEMP/phone-layout/audit"
+
       - name: Keep the phone screenshots
         if: always()
         uses: actions/upload-artifact@v7
