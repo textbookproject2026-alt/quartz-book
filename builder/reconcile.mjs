@@ -32,6 +32,7 @@ import {
   markerCurrent,
   markerDifference,
   markerUrl,
+  otherBranch,
   reconcileTargets,
   registryDigest,
 } from "./lib.mjs"
@@ -52,6 +53,15 @@ async function readRegistry() {
   const res = await fetch(REGISTRY_URL)
   if (!res.ok) throw new Error(`fetching the registry from ${REGISTRY_URL} answered ${res.status}.`)
   return res.json()
+}
+
+/** A branch's head, or "" when the book has no such branch. */
+function branchHeadOrNone(repo, branch) {
+  try {
+    return branchHead(repo, branch)
+  } catch {
+    return ""
+  }
 }
 
 /** The branch head, read anonymously, as the build's checkout will read it (§0a). */
@@ -93,10 +103,13 @@ const builderCommit = () =>
 async function compare(registry, target, builder) {
   const entry = findBook(registry, target.slug)
   bookOptions(registry, entry, target.branch) // refuses now what the build would refuse
+  const other = otherBranch(entry, target.branch)
   const want = {
     slug: target.slug,
     branch: target.branch,
     bookCommit: branchHead(target.repo, target.branch),
+    // The version history shows the other branch too (batch 2a).
+    otherCommit: other ? branchHeadOrNone(target.repo, other) : "",
     registryDigest: registryDigest(registry, entry),
     builderCommit: builder,
   }

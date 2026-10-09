@@ -388,7 +388,8 @@ const looseSlug = (name) =>
 
 /** A book's own file at the builder's /how-to-comment fails the build (§0). */
 export function howToCommentClash(entries) {
-  return entries.find((name) => looseSlug(name) === HOW_TO_COMMENT) ?? null
+  // The builder's own pages: /how-to-comment, and /history (batch 2a).
+  return entries.find((name) => [HOW_TO_COMMENT, "history"].includes(looseSlug(name))) ?? null
 }
 
 /**
@@ -558,9 +559,21 @@ export const marker = (facts) => ({
   slug: facts.slug,
   branch: facts.branch,
   book_commit: facts.bookCommit,
+  // The other of the book's two branches (drafts for the live branch, and the
+  // live branch for drafts): the version history shows both, so a build is
+  // stale when either moves (batch 2a). "" where there is none.
+  other_commit: facts.otherCommit ?? "",
   registry_digest: facts.registryDigest,
   builder_commit: facts.builderCommit,
 })
+
+/** The book's other branch for a build of `branch`: drafts for the live branch, live for drafts, else null. */
+export const otherBranch = (book, branch) =>
+  branch === book.content.live_branch
+    ? (book.content.drafts_branch ?? null)
+    : branch === book.content.drafts_branch
+      ? book.content.live_branch
+      : null
 
 /** Paths Quartz itself generates, whatever the book holds. */
 const QUARTZ_GENERATED = [
@@ -578,6 +591,8 @@ const QUARTZ_GENERATED = [
 /** What the builder adds. */
 const BUILDER_GENERATED = [
   `${HOW_TO_COMMENT}.html`,
+  "history.html",
+  ".well-known/history.json",
   "_redirects",
   "_headers",
   MARKER_PATH,
@@ -691,6 +706,7 @@ export const markerCurrent = (served, want) =>
       slug: served.slug,
       branch: served.branch,
       book_commit: served.book_commit,
+      other_commit: served.other_commit ?? "",
       registry_digest: served.registry_digest,
       builder_commit: served.builder_commit,
     })
@@ -2094,7 +2110,9 @@ export function creditsBlockHtml(meta, contributorCount, href) {
     line("editor", meta.editors ?? []),
     more ? `<p>${more}</p>` : "",
   ].join("")
-  return body ? `<div class="tb-credits-block" role="note" aria-label="Credits">${body}</div>` : ""
+  // The book's version history (batch 2a, Part B), from the same block.
+  const history = `<p><a href="/${HISTORY_PAGE}">Book history: what has changed, and what is being edited</a></p>`
+  return `<div class="tb-credits-block" role="note" aria-label="Credits">${body}${history}</div>`
 }
 
 /** `extra` after the page's title heading (Quartz's h1.article-title); unchanged when there is none or nothing to add. */
@@ -2125,4 +2143,219 @@ export function contributorsBackMatter(contributors) {
       ),
     ),
   ]
+}
+
+// ---------------------------------------------------------------------------
+// Version history (batch 2a, Part B): what readers see as three plain states,
+// Published (on the live branch), Being edited (on drafts, not yet published)
+// and Proposed (open proposals and notes, asked for at view time from the
+// function's /api/history), with the book's releases (its v* tags) as
+// milestones. prepare.mjs reads git; these functions shape it. Deterministic: no
+// timestamp of the build's own, no build head.
+
+export const HISTORY_PATH = ".well-known/history.json"
+/** The builder's book history page, /history, beside /how-to-comment. */
+export const HISTORY_PAGE = "history"
+export const HISTORY_VERSION = 1
+
+const STOCK = [
+  [/^Edit ¶(\d+) of \S+$/, (m) => `Paragraph ${m[1]} changed`],
+  [/^(?:Update|Edit) \S+\.md$/i, () => "Text changed"],
+  [/^(?:Create|Add) \S+\.md$/i, () => "First published"],
+]
+const CONVENTIONAL =
+  /^(?:chore|fix|docs|feat|refactor|style|test|build|ci|perf)(?:\([^)]*\))?!?:\s+/i
+
+/**
+ * A commit's summary as readers see it, and the pull request it came through:
+ * batch 1's edit summary where there is one (propose-edit's subject, in full from
+ * the message when it was cut at 72), a PR title's "Update file: " head and a
+ * "(#n)" tail taken off, conventional-commit prefixes dropped, the platform's
+ * stock messages said in words.
+ */
+export function historySummary(subject = "", body = "") {
+  let s = String(subject).trim()
+  let pr = null
+  const tail = /\s*\(#(\d+)\)\s*$/.exec(s)
+  if (tail) {
+    pr = Number(tail[1])
+    s = s.slice(0, tail.index)
+  }
+  if (s.endsWith("…")) {
+    const full = String(body)
+      .split(/\n\s*\n/)[1]
+      ?.replace(/\s+/g, " ")
+      .trim()
+    if (full && full.startsWith(s.slice(0, -1))) s = full
+  }
+  s = s
+    .replace(/^(?:Update|Edit ¶\d+ of) [^:\s]+: /, "")
+    .replace(CONVENTIONAL, "")
+    .trim()
+  for (const [re, say] of STOCK) {
+    const m = re.exec(s)
+    if (m) return { summary: say(m), pr }
+  }
+  return { summary: s || "Changed", pr }
+}
+
+/** A history entry's person in their role on the page: author, editor, contributor, or null (automation). */
+export function roleOf(rev, { creators = [], editors = [] } = {}) {
+  if (rev.automation) return null
+  const who = String(rev.who ?? "").toLowerCase()
+  const is = (p) => p.name.toLowerCase() === who || p.github?.toLowerCase() === who
+  if (creators.some(is)) return "author"
+  if (editors.some(is)) return "editor"
+  return "contributor"
+}
+
+/**
+ * /.well-known/history.json. `files`: { path: { published, drafts, releases } }
+ * from prepare.mjs (revisions, newest first, with their message bodies; releases
+ * { tag: the page's version sha at that tag, or null }). `pages`: { path: { url,
+ * title, people: { creators, editors } } }. `releases`: [{ tag, date, commit }].
+ */
+export function historyData({ files, pages, releases }) {
+  const entry = (people) => (r) => {
+    const { summary, pr } = historySummary(r.message, r.body)
+    return {
+      sha: r.sha,
+      date: dateOnly(r.date),
+      who: r.automation ? "the platform" : r.who,
+      role: roleOf(r, people),
+      summary,
+      ...(pr ? { pr } : {}),
+    }
+  }
+  return {
+    version: HISTORY_VERSION,
+    releases: [...releases]
+      .sort((a, b) => a.date.localeCompare(b.date) || a.tag.localeCompare(b.tag))
+      .map(({ tag, date }) => ({ tag, date: dateOnly(date) })),
+    pages: Object.keys(files)
+      .filter((path) => pages[path])
+      .sort()
+      .map((path) => {
+        const f = files[path]
+        const p = pages[path]
+        return {
+          path: p.url,
+          source: path,
+          title: p.title,
+          published: f.published.map(entry(p.people)),
+          drafts: f.drafts.map(entry(p.people)),
+          releases: f.releases,
+        }
+      }),
+  }
+}
+
+const RELEASE_LABEL = (tag) => tag.replace(/^v/i, "")
+
+/**
+ * The book's history as a small SVG that works without scripts (the /history
+ * page): three lanes, Proposed, Being edited and Published, a dot per change
+ * along the time axis (its <title> the summary, which a browser shows on hover),
+ * the releases as vertical rules. Proposed is drawn empty here: what is proposed
+ * changes between builds, and the page's script adds it.
+ */
+export function swimlaneSvg(history, { width = 760 } = {}) {
+  const changes = history.pages.flatMap((p) => [
+    ...p.drafts.map((e) => ({ ...e, lane: 1, title: p.title })),
+    ...p.published.map((e) => ({ ...e, lane: 2, title: p.title })),
+  ])
+  const dates = [...changes.map((c) => c.date), ...history.releases.map((r) => r.date)]
+    .filter(Boolean)
+    .sort()
+  const left = 118
+  const right = 16
+  const top = 22
+  const lane = 34
+  const height = top + lane * 3 + 26
+  const t0 = Date.parse(dates[0] ?? "2026-01-01")
+  const t1 = Math.max(Date.parse(dates.at(-1) ?? "2026-01-01"), t0 + 86400000)
+  const x = (d) => (left + ((Date.parse(d) - t0) / (t1 - t0)) * (width - left - right)).toFixed(1)
+  const y = (l) => top + lane * l + lane / 2
+  const names = ["Proposed", "Being edited", "Published"]
+  const out = [
+    `<svg class="tb-swimlane" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="tb-swim-t" xmlns="http://www.w3.org/2000/svg">`,
+    `<title id="tb-swim-t">The book's changes over time: ${changes.filter((c) => c.lane === 2).length} published, ${changes.filter((c) => c.lane === 1).length} being edited${history.releases.length ? `, and ${history.releases.length} release${history.releases.length === 1 ? "" : "s"}` : ""}.</title>`,
+  ]
+  names.forEach((n, l) => {
+    out.push(
+      `<rect class="tb-swim-lane" x="0" y="${top + lane * l}" width="${width}" height="${lane}" data-lane="${l}"/>`,
+    )
+    out.push(`<text class="tb-swim-name" x="8" y="${y(l) + 4}">${n}</text>`)
+  })
+  for (const r of history.releases) {
+    const rx = x(r.date)
+    out.push(
+      `<line class="tb-swim-release" x1="${rx}" x2="${rx}" y1="${top - 6}" y2="${top + lane * 3}"/>`,
+    )
+    out.push(
+      `<text class="tb-swim-release-label" x="${rx}" y="${top - 9}" text-anchor="middle">${escHtml(RELEASE_LABEL(r.tag))}</text>`,
+    )
+  }
+  for (const c of [...changes].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.sha.localeCompare(b.sha),
+  )) {
+    out.push(
+      `<circle class="tb-swim-dot" data-lane="${c.lane}" cx="${x(c.date)}" cy="${y(c.lane)}" r="5" tabindex="0"><title>${escHtml(`${c.date} · ${c.title}: ${c.summary} (${c.who})`)}</title></circle>`,
+    )
+  }
+  if (dates.length) {
+    out.push(`<text class="tb-swim-axis" x="${left}" y="${height - 8}">${dates[0]}</text>`)
+    out.push(
+      `<text class="tb-swim-axis" x="${width - right}" y="${height - 8}" text-anchor="end">${dates.at(-1)}</text>`,
+    )
+  }
+  out.push("</svg>")
+  return out.join("")
+}
+
+/** The /history page's markdown: the swimlane, the place the script fills, and a plain list for no script. */
+export function historyPageMarkdown(history, { repo }) {
+  const recent = history.pages
+    .flatMap((p) => p.published.map((e) => ({ ...e, title: p.title, url: p.path })))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title))
+    .slice(0, 30)
+  const releases = [...history.releases].reverse()
+  return [
+    "---",
+    "title: Book history",
+    "tbBuilderPage: true",
+    "paragraphNumbers: false",
+    "---",
+    "",
+    "Every change to this book, in three states: **Proposed** (sent by a reader, waiting for the authors), **Being edited** (accepted, not yet published) and **Published** (what you read). Releases are marked as milestones.",
+    "",
+    `<figure class="tb-swim">${swimlaneSvg(history)}</figure>`,
+    "",
+    "<div data-tb-book-history></div>",
+    "",
+    ...(releases.length
+      ? [
+          "## Releases",
+          "",
+          ...releases.map(
+            (r) =>
+              `- **${escHtml(RELEASE_LABEL(r.tag))}**, ${r.date}: [the book as it was](https://github.com/${repo}/tree/${encodeURIComponent(r.tag)})`,
+          ),
+          "",
+        ]
+      : []),
+    '<div class="tb-history-static">',
+    "",
+    "## Recently published",
+    "",
+    ...(recent.length
+      ? recent.map(
+          (e) =>
+            `- ${e.date}, [${escHtml(e.title)}](${e.url}): ${escHtml(e.summary)} (${escHtml(e.who)})`,
+        )
+      : ["Nothing published yet."]),
+    "",
+    "</div>",
+    "",
+  ].join("\n")
 }

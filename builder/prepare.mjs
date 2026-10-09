@@ -34,7 +34,14 @@ import {
   registryDigest,
   renderConfig,
   revisionsOf,
+  HISTORY_PAGE,
+  creatorsOf,
+  editorsOf,
+  historyData,
+  historyPageMarkdown,
+  pageTitle,
 } from "./lib.mjs"
+import { quartzUrl } from "../automation/scripts/backup-annotations.mjs"
 
 const BUILDER = resolve(import.meta.dirname, "..")
 const [bookDir, branch, workDir, registryFile] = process.argv.slice(2)
@@ -70,7 +77,7 @@ try {
   const clash = howToCommentClash(entries)
   if (clash)
     throw new BuildRefused(
-      `the book has its own "${clash}", but /${HOW_TO_COMMENT} is the page the builder adds to every book. Rename or remove the book's file.`,
+      `the book has its own "${clash}", but /${clash.replace(/\.md$/i, "").toLowerCase()} is a page the builder adds to every book. Rename or remove the book's file.`,
     )
 
   // Quartz reads a copy, so the checkout is never written to. The copy keeps the
@@ -189,6 +196,143 @@ try {
     revisions[file] = revisionsOf(parseFollowLog(follow), info, automation)
   }
   writeFileSync(join(workDir, "revisions.json"), JSON.stringify(revisions) + "\n")
+
+  // The book's version history (batch 2a): each page's commits on the live
+  // branch (Published) and on drafts but not yet live (Being edited), and the
+  // releases (v* tags). The workflows fetch the live and drafts branches and the
+  // tags beside the commit being built; a branch that isn't there is left out
+  // with a note, never guessed.
+  const refOk = (ref) => {
+    try {
+      return git(book, "rev-parse", "--verify", "-q", `${ref}^{commit}`)
+    } catch {
+      return null
+    }
+  }
+  const live = entry.content.live_branch
+  const draftsBranch = entry.content.drafts_branch
+  const liveRef =
+    branch === live
+      ? "HEAD"
+      : refOk(`refs/remotes/origin/${live}`)
+        ? `refs/remotes/origin/${live}`
+        : null
+  const draftsRef = !draftsBranch
+    ? null
+    : branch === draftsBranch
+      ? "HEAD"
+      : ([`refs/remotes/origin/${draftsBranch}`, `refs/heads/${draftsBranch}`].find(refOk) ?? null)
+  if (!liveRef)
+    console.log(`prepare: no ${live} beside the build, so the history has no published versions`)
+  if (draftsBranch && !draftsRef)
+    console.log(
+      `prepare: no ${draftsBranch} beside the build, so the history has nothing being edited`,
+    )
+  const lsMd = (ref) =>
+    ref
+      ? git(book, "ls-tree", "-r", "-z", "--name-only", ref, "--", ...ALLOWLIST)
+          .split("\0")
+          .filter(
+            (f) => f.endsWith(".md") && !f.startsWith("community/") && !f.startsWith("assets/"),
+          )
+      : []
+  const historyFiles = [...new Set([...lsMd(liveRef), ...lsMd(draftsRef)])].sort()
+  const allInfo = parseCommitInfo(
+    git(
+      book,
+      "log",
+      "--no-merges",
+      "-z",
+      `--format=${COMMIT_INFO_FORMAT}`,
+      ...[liveRef, draftsRef].filter(Boolean),
+    ),
+  )
+  const follow = (range, file) =>
+    revisionsOf(
+      parseFollowLog(
+        git(
+          book,
+          "log",
+          "--follow",
+          "--no-merges",
+          "-M",
+          "--name-status",
+          "-z",
+          "--format=%x1e%H",
+          range,
+          "--",
+          file,
+        ),
+      ),
+      allInfo,
+      automation,
+    ).map((r) => ({ ...r, body: allInfo.get(r.sha)?.body ?? "" }))
+  const releases = git(
+    book,
+    "for-each-ref",
+    "--format=%(refname:short)%09%(creatordate:iso-strict)%09%(*objectname)%09%(objectname)",
+    "refs/tags/v*",
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [tag, date, peeled, own] = line.split("\t")
+      return { tag, date, commit: peeled || own }
+    })
+  const readAt = (ref, file) => {
+    try {
+      return git(book, "show", `${ref}:${file}`)
+    } catch {
+      return null
+    }
+  }
+  const frontOf = (text) => {
+    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text ?? "")
+    try {
+      const fm = m ? YAML.parse(m[1]) : {}
+      return fm && typeof fm === "object" && !Array.isArray(fm) ? fm : {}
+    } catch {
+      return {}
+    }
+  }
+  const indexFm = frontOf(readAt(liveRef ?? draftsRef ?? "HEAD", "index.md"))
+  const bookPeople = { creators: creatorsOf(indexFm), editors: editorsOf(indexFm) }
+  const historyFilesData = {}
+  const historyPages = {}
+  for (const file of historyFiles) {
+    const text = readAt(liveRef ?? "HEAD", file) ?? readAt(draftsRef, file) ?? ""
+    const fm = frontOf(text)
+    const creators = creatorsOf(fm)
+    const editors = editorsOf(fm)
+    historyPages[file] = {
+      url: quartzUrl(file, ""),
+      title: pageTitle(text, file),
+      people: {
+        creators: creators.length ? creators : bookPeople.creators,
+        editors: editors.length ? editors : bookPeople.editors,
+      },
+    }
+    historyFilesData[file] = {
+      published: liveRef ? follow(liveRef, file) : [],
+      drafts: liveRef && draftsRef ? follow(`${liveRef}..${draftsRef}`, file) : [],
+      releases: Object.fromEntries(
+        releases.map((r) => [
+          r.tag,
+          git(book, "log", "-1", "--format=%H", r.commit, "--", file) || null,
+        ]),
+      ),
+    }
+  }
+  const history = historyData({ files: historyFilesData, pages: historyPages, releases })
+  writeFileSync(join(workDir, "history-data.json"), JSON.stringify(history) + "\n")
+  // The marker's other_commit: the other branch's head, as fetched beside the build.
+  const otherRef = branch === live ? draftsRef : branch === draftsBranch ? liveRef : null
+  facts.otherCommit = otherRef ? (refOk(otherRef) ?? "") : ""
+  writeFileSync(join(workDir, "facts.json"), JSON.stringify(facts, null, 2) + "\n")
+  writeFileSync(
+    join(content, `${HISTORY_PAGE}.md`),
+    historyPageMarkdown(history, { repo: entry.content.repo }),
+  )
   console.log(
     `prepare: ${facts.slug} @ ${facts.branch} (${facts.bookCommit.slice(0, 7)}), ${facts.noindex ? "preview, noindex" : "live branch"}, suggest ${facts.suggestEndpoint ? "on" : "off"}`,
   )

@@ -216,6 +216,7 @@ test("the fixture on its live branch", async (t) => {
       "slug",
       "branch",
       "book_commit",
+      "other_commit",
       "registry_digest",
       "builder_commit",
       "serves",
@@ -235,6 +236,8 @@ test("the fixture on its live branch", async (t) => {
     assert.equal(m.slug, "design-fixture")
     assert.equal(m.branch, "main")
     assert.equal(m.book_commit, book.head)
+    // The other branch's head (drafts), "" when the checkout has none beside it.
+    assert.match(m.other_commit, /^([0-9a-f]{40})?$/)
     assert.match(m.registry_digest, /^sha256:[0-9a-f]{64}$/)
     assert.match(m.builder_commit, /^[0-9a-f]{40}(-dirty)?$/)
   })
