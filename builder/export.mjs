@@ -34,6 +34,7 @@ import {
   EXPORT_FORMATS,
   EXPORT_MAX_BYTES,
   chapterSlugs,
+  contributorsBackMatter,
   cslItem,
   epubFontCss,
   exportFonts,
@@ -335,7 +336,11 @@ function main() {
   }
   for (const p of chapters) {
     const { blocks } = bodies.get(p.path)
-    const json = doc(p.metadata, [...front(p.metadata), ...blocks])
+    const json = doc(p.metadata, [
+      ...front(p.metadata),
+      ...blocks,
+      ...contributorsBackMatter(p.contributors),
+    ])
     write(p.path, names.get(p.slug), "pdf", pdf(json, false))
     write(p.path, names.get(p.slug), "epub", pandocTo("epub3", json, epubArgs(json)))
   }
@@ -363,7 +368,13 @@ function main() {
     ]
   })
   const outline = { t: "RawBlock", c: ["typst", "#outline-here"] }
-  const bookJson = doc(book, [...front(book), outline, ...introBlocks, ...chapterBlocks])
+  const bookJson = doc(book, [
+    ...front(book),
+    outline,
+    ...introBlocks,
+    ...chapterBlocks,
+    ...contributorsBackMatter(catalog.credits?.contributors),
+  ])
   write("/", "", "pdf", pdf(bookJson, true))
   write("/", "", "epub", pandocTo("epub3", bookJson, ["--toc", ...epubArgs(bookJson)]))
   write("/", "", "odt", pandocTo("odt", bookJson, ["--toc", ...odtArgs]))

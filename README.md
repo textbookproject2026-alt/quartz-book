@@ -369,6 +369,14 @@ closed as completed (`automation/scripts/lib/credits.mjs` has the policy;
 notice too). `community/credit-overrides.yml` (hide, rename, merge, no-credit) and the
 `no-credit` label take people or items out.
 
+At every build `finish.mjs` applies the overrides again (so a change shows at the next
+build) and writes the credit onto the pages, outside `<article>` so annotations don't
+move: a byline under each chapter's title ("By … · Edited by …"), "With contributions
+from …" after the chapter, linked to its anchor on the contributors page, and a credits
+block on the front page. The catalog gains `credits` and each page's `contributors`;
+the head gains `DC.contributor` and JSON-LD `contributor`; the exports end with a
+Contributors page. `community/credit-overrides.yml` is never published.
+
 ## Tests
 
 ```

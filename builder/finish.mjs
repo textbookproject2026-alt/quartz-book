@@ -13,6 +13,15 @@ import {
   buildCatalog,
   NOINDEX_HEADERS,
   addCanonical,
+  addAfterArticle,
+  addAfterTitle,
+  bylineHtml,
+  creatorsOf,
+  creditsBlockHtml,
+  creditsFootHtml,
+  CREDIT_OVERRIDES,
+  editorsOf,
+  pageAnchor,
   addToHead,
   cslItem,
   headTags,
@@ -27,6 +36,7 @@ import {
   walkFiles,
 } from "./lib.mjs"
 import { citeData } from "./citations.mjs"
+import { applyOverrides, pageContributors } from "../automation/scripts/lib/credits.mjs"
 
 const [workDir, outDir] = process.argv.slice(2)
 const facts = JSON.parse(readFileSync(join(workDir, "facts.json"), "utf8"))
@@ -71,19 +81,41 @@ const sourceOf = (relPath) => {
 const revisions = JSON.parse(readFileSync(join(workDir, "revisions.json"), "utf8"))
 const historyFile = join(workDir, "history.json")
 const commits = existsSync(historyFile) ? JSON.parse(readFileSync(historyFile, "utf8")) : []
-const catalog = buildCatalog({
-  facts,
-  commits,
-  pages: pages.map(({ relPath, slug }) => ({
-    relPath,
-    slug,
-    title: index[slug].title,
-    ...sourceOf(relPath),
-    created: revisions[relPath]?.at(-1)?.date ?? "",
-    indexedTags: index[slug].tags ?? [],
-    links: index[slug].links ?? [],
-  })),
-})
+const catalogPages = pages.map(({ relPath, slug }) => ({
+  relPath,
+  slug,
+  title: index[slug].title,
+  ...sourceOf(relPath),
+  created: revisions[relPath]?.at(-1)?.date ?? "",
+  indexedTags: index[slug].tags ?? [],
+  links: index[slug].links ?? [],
+}))
+
+// The credit ledger (community/credits.json, written weekly by the book's
+// contributors workflow), with community/credit-overrides.yml applied again, so a
+// change to the overrides shows at this build. Listed authors and editors (any
+// page's frontmatter) aren't contributors. A book with no ledger has no credits.
+const readOptional = (rel, parse) => {
+  const file = join(workDir, "content", rel)
+  if (!existsSync(file)) return null
+  try {
+    return parse(readFileSync(file, "utf8"))
+  } catch (err) {
+    console.warn(
+      `::warning title=credits::${rel} can't be read (${err.message}); left out of this build.`,
+    )
+    return null
+  }
+}
+const rawLedger = readOptional("community/credits.json", JSON.parse)
+const listed = catalogPages.flatMap((p) => [
+  ...creatorsOf(p.frontmatter),
+  ...editorsOf(p.frontmatter),
+])
+const ledger = rawLedger
+  ? applyOverrides(rawLedger, readOptional(CREDIT_OVERRIDES, YAML.parse) ?? {}, listed)
+  : null
+const catalog = buildCatalog({ facts, commits, pages: catalogPages, credits: ledger })
 write(CATALOG_PATH, JSON.stringify(catalog, null, 2) + "\n")
 
 // Every page: its canonical link, a listing in Contents order, and on the
@@ -95,6 +127,10 @@ const metaBySlug = new Map(
     .map((p) => [pages.find((x) => x.relPath === p.source).slug, p.metadata]),
 )
 const bookItem = cslItem(catalog.metadata)
+const contributorsPage = pages.some((p) => p.relPath === "community/contributors.md")
+  ? "/community/contributors"
+  : ""
+const relPathOf = new Map(pages.map((p) => [p.slug, p.relPath]))
 for (const file of walkFiles(outDir)) {
   const path = rel(file)
   const url = htmlUrl(path)
@@ -105,12 +141,36 @@ for (const file of walkFiles(outDir)) {
   html = orderFolderListing(html, slug, facts.contentsOrder ?? [])
   const meta = metaBySlug.get(slug)
   if (meta) {
+    const relPath = relPathOf.get(slug)
+    const front = slug === "index"
+    // The front page acknowledges everyone; a page, those who changed it.
+    const contributors = !ledger
+      ? []
+      : front
+        ? ledger.contributors.map(({ name, github }) => ({ name, ...(github ? { github } : {}) }))
+        : pageContributors(ledger, relPath)
     const cite = citeData(cslItem(meta), bookItem)
     html = addToHead(
       html,
-      headTags(meta) + `<script type="application/json" id="tb-cite">${scriptJson(cite)}</script>`,
+      headTags(meta, { contributors }) +
+        `<script type="application/json" id="tb-cite">${scriptJson(cite)}</script>`,
       url,
     )
+    if (front) {
+      html = addAfterTitle(
+        html,
+        creditsBlockHtml(meta, ledger ? contributors.length : 0, contributorsPage),
+      )
+    } else if (!relPath.startsWith("community/")) {
+      html = addAfterTitle(html, bylineHtml(meta))
+      html = addAfterArticle(
+        html,
+        creditsFootHtml(
+          contributors,
+          contributorsPage && `${contributorsPage}#${pageAnchor(relPath)}`,
+        ),
+      )
+    }
   }
   writeFileSync(file, html)
 }

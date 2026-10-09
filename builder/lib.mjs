@@ -4,6 +4,8 @@
 import { createHash } from "node:crypto"
 import { readdirSync } from "node:fs"
 import { join } from "node:path"
+// The credit ledger's pure functions live with the book automation that writes it.
+import { pageAnchor, pageContributors } from "../automation/scripts/lib/credits.mjs"
 
 export const REGISTRY_URL =
   "https://raw.githubusercontent.com/textbookproject2026-alt/textbook-registry/main/registry.json"
@@ -368,8 +370,14 @@ export function ignorePatternsFor(entries) {
     .filter((name) => name !== ".git" && !ALLOWLIST.includes(name))
     .sort()
     .flatMap((name) => [name, `${name}/**`])
-    .concat(ASSET_NOTES, WORD_FILES)
+    .concat(ASSET_NOTES, WORD_FILES, CREDIT_OVERRIDES)
 }
+
+/**
+ * The book's credit overrides: read by the build, never published (it can name
+ * someone who asked to be left out).
+ */
+export const CREDIT_OVERRIDES = "community/credit-overrides.yml"
 
 /** Quartz's slug for a root-level name, near enough to catch a collision. */
 const looseSlug = (name) =>
@@ -949,7 +957,7 @@ export function parseGitLog(text, shallow = []) {
  * frontmatter, indexedTags, links (slugs) }. `commits` are parseGitLog's,
  * newest first.
  */
-export function buildCatalog({ facts, pages, commits = [] }) {
+export function buildCatalog({ facts, pages, commits = [], credits = null }) {
   const bySlug = new Map(pages.map((p) => [p.slug, p]))
   const byRelPath = new Map(pages.map((p) => [p.relPath, p]))
   const index = pages.find((p) => p.slug === "index")
@@ -975,6 +983,8 @@ export function buildCatalog({ facts, pages, commits = [] }) {
           .map(slugUrl)
           .sort(),
         ...(book ? { metadata: pageMetadata(p, book, facts) } : {}),
+        // The page's contributors (credits.json, overrides applied), when the book has a ledger.
+        ...(credits ? { contributors: pageContributors(credits, p.relPath) } : {}),
       }
     })
 
@@ -1009,6 +1019,8 @@ export function buildCatalog({ facts, pages, commits = [] }) {
     book_commit: facts.bookCommit,
     authors: bookAuthors.length ? bookAuthors : [...new Set(out.flatMap((p) => p.authors))].sort(),
     ...(book ? { metadata: book } : {}),
+    // The credit ledger, as this build applied the overrides (catalog stays version 1).
+    ...(credits ? { credits } : {}),
     pages: out,
     recent: recent.slice(0, RECENT_LIMIT),
   }
@@ -2015,4 +2027,102 @@ export function odtStyles(xml, fonts) {
       .replaceAll(`"&apos;${from}&apos;"`, `"&apos;${to}&apos;"`)
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Credit on the page (batch 2a): the byline under a chapter's title, its
+// contributors after the article, the front page's credits block. Written into the
+// built HTML by finish.mjs, outside <article>, so the text Hypothes.is anchors on
+// doesn't move; styled by edit-on-github (.tb-byline, .tb-credits-foot,
+// .tb-credits-block, .tb-role).
+
+/** Text for HTML: & < > " escaped. */
+export const escHtml = (s) =>
+  String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+
+/** Where the contributors page puts a page's credits (gen-contributors' pageAnchor). */
+export { pageAnchor }
+
+/** How many names a chapter's foot shows before "and n others". */
+export const FOOT_NAMES = 8
+
+const roleBadgeHtml = (role) =>
+  `<span class="tb-role" data-role="${role}">${CREDIT_ROLES[role].label}</span>`
+
+/** "By A and B · Edited by C" under a page's title; "" for neither. */
+export function bylineHtml(meta) {
+  const parts = []
+  if (meta.creators?.length)
+    parts.push(`By ${escHtml(joinNames(meta.creators.map((c) => c.name)))}`)
+  if (meta.editors?.length)
+    parts.push(`Edited by ${escHtml(joinNames(meta.editors.map((c) => c.name)))}`)
+  return parts.length
+    ? `<p class="tb-byline">${parts.join('<span class="tb-sep" aria-hidden="true">·</span>')}</p>`
+    : ""
+}
+
+/** "With contributions from X, Y and Z" (FOOT_NAMES names, then "and n others"), linked to the contributors page; "" for none. */
+export function creditsFootHtml(contributors, href) {
+  if (!contributors.length) return ""
+  const names = contributors.map((c) => escHtml(c.name))
+  const shown =
+    names.length > FOOT_NAMES
+      ? `${names.slice(0, FOOT_NAMES).join(", ")} and ${names.length - FOOT_NAMES} other${names.length - FOOT_NAMES === 1 ? "" : "s"}`
+      : joinNames(names)
+  const text = `With contributions from ${shown}.`
+  return `<p class="tb-credits-foot">${href ? `<a href="${escHtml(href)}">${text}</a>` : text}</p>`
+}
+
+/** The front page's credits: its authors and editors, and how many contributors, linked to the contributors page. */
+export function creditsBlockHtml(meta, contributorCount, href) {
+  const line = (role, people) =>
+    people.length
+      ? `<p>${roleBadgeHtml(role)} ${escHtml(joinNames(people.map((p) => p.name)))}</p>`
+      : ""
+  const count = contributorCount
+    ? `${roleBadgeHtml("contributor")} ${contributorCount} ${contributorCount === 1 ? "person has" : "people have"} contributed`
+    : ""
+  const more = href
+    ? `<a href="${escHtml(href)}">${count ? `${count}: see who, and how credit works` : "Contributors and how credit works"}</a>`
+    : count
+  const body = [
+    line("author", meta.creators ?? []),
+    line("editor", meta.editors ?? []),
+    more ? `<p>${more}</p>` : "",
+  ].join("")
+  return body ? `<div class="tb-credits-block" role="note" aria-label="Credits">${body}</div>` : ""
+}
+
+/** `extra` after the page's title heading (Quartz's h1.article-title); unchanged when there is none or nothing to add. */
+export function addAfterTitle(html, extra) {
+  if (!extra) return html
+  const m = /<h1 class="article-title"[^>]*>[\s\S]*?<\/h1>/.exec(html)
+  return m ? html.slice(0, m.index + m[0].length) + extra + html.slice(m.index + m[0].length) : html
+}
+
+/** `extra` after the page's <article>: outside the text annotations anchor on. */
+export function addAfterArticle(html, extra) {
+  if (!extra) return html
+  const i = html.indexOf("</article>")
+  return i === -1
+    ? html
+    : html.slice(0, i + "</article>".length) + extra + html.slice(i + "</article>".length)
+}
+
+/** The exports' back matter: a "Contributors" page naming them (names only), or nothing. */
+export function contributorsBackMatter(contributors) {
+  if (!contributors?.length) return []
+  return [
+    { t: "RawBlock", c: ["typst", "#pagebreak(weak: true)"] },
+    { t: "Header", c: [1, ["contributors", ["unnumbered"], []], pandocWords("Contributors")] },
+    para(
+      pandocWords(
+        `With thanks to ${joinNames(contributors.map((c) => c.name))}, whose contributions the authors accepted.`,
+      ),
+    ),
+  ]
 }

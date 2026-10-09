@@ -304,6 +304,8 @@ test("everything at the repo root outside the allowlist is ignored, whole", () =
     "**/*.pages",
     "**/*.rtf",
     "**/*.pages/**",
+    // The credit overrides can name someone who asked to be left out (batch 2a).
+    "community/credit-overrides.yml",
   ])
 })
 
