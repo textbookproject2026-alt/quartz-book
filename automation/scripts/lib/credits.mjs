@@ -17,7 +17,7 @@
 // gave. Listed authors and editors aren't also listed as contributors. A
 // `no-credit` label, or the overrides file's no-credit list, takes an item out.
 //
-// Only people are credited (Alec, 9 Oct 2026, batch 2b): credit comes from an
+// Who is credited (Alec, 9 Oct 2026, batch 2b): credit comes from an
 // allowlist of sources, never from raw git authorship. A commit's author,
 // committer or Co-authored-by trailer earns nothing on its own: a commit counts
 // only when the author site made it for a member (its "Sent by @login via the
