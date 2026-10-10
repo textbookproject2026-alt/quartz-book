@@ -2091,6 +2091,9 @@ export function odtStyles(xml, fonts) {
 // .tb-credits-block, .tb-role).
 
 /** Text for HTML: & < > " escaped. */
+/** Someone's words as plain text in Markdown: no links, emphasis or HTML of their own. */
+export const mdText = (s) => escHtml(String(s ?? "").replace(/([\\`*_[\]{}()#+\-.!|~])/g, "\\$1"))
+
 export const escHtml = (s) =>
   String(s)
     .replace(/&/g, "&amp;")
@@ -2184,11 +2187,13 @@ export function contributorsBackMatter(contributors) {
 }
 
 // ---------------------------------------------------------------------------
-// Version history (batch 2a, Part B): what readers see as three plain states,
+// Version history (batch 2a, Part B): what readers see as plain states,
 // Published (on the live branch), Being edited (on drafts, not yet published)
 // and Proposed (open proposals and notes, asked for at view time from the
 // function's /api/history), with the book's releases (its v* tags) as
-// milestones. prepare.mjs reads git; these functions shape it. Deterministic: no
+// milestones; and since batch 2c Declined (proposals, notes and suggestions the
+// authors closed, with the reason, from the function at build time and again at
+// view time). prepare.mjs reads git; these functions shape it. Deterministic: no
 // timestamp of the build's own, no build head.
 
 export const HISTORY_PATH = ".well-known/history.json"
@@ -2252,8 +2257,9 @@ export function roleOf(rev, { creators = [], editors = [] } = {}) {
  * from prepare.mjs (revisions, newest first, with their message bodies; releases
  * { tag: the page's version sha at that tag, or null }). `pages`: { path: { url,
  * title, people: { creators, editors } } }. `releases`: [{ tag, date, commit }].
+ * `declined`: the function's declined items (public fields), kept as they are.
  */
-export function historyData({ files, pages, releases }) {
+export function historyData({ files, pages, releases, declined = [] }) {
   const entry = (people, source) => (r) => {
     const { summary, pr } = historySummary(r.message, r.body)
     return {
@@ -2269,6 +2275,9 @@ export function historyData({ files, pages, releases }) {
   }
   return {
     version: HISTORY_VERSION,
+    declined: declined
+      .filter((d) => d && Number.isInteger(d.number) && typeof d.date === "string")
+      .sort((a, b) => b.date.localeCompare(a.date) || b.number - a.number),
     releases: [...releases]
       .sort((a, b) => a.date.localeCompare(b.date) || a.tag.localeCompare(b.tag))
       .map(({ tag, date }) => ({ tag, date: dateOnly(date) })),
@@ -2294,16 +2303,29 @@ const RELEASE_LABEL = (tag) => tag.replace(/^v/i, "")
 
 /**
  * The book's history as a small SVG that works without scripts (the /history
- * page): three lanes, Proposed, Being edited and Published, a dot per change
- * along the time axis (its <title> the summary, which a browser shows on hover),
- * the releases as vertical rules. Proposed is drawn empty here: what is proposed
- * changes between builds, and the page's script adds it.
+ * page): four lanes, Proposed, Being edited, Published and Declined, a dot per
+ * change along the time axis (its <title> the summary, which a browser shows on
+ * hover), the releases as vertical rules. A declined change is a hollow ring with a
+ * cross, so it reads as different without colour. Proposed is drawn empty here:
+ * what is proposed changes between builds, and the page's script adds it.
  */
 export function swimlaneSvg(history, { width = 760 } = {}) {
-  const changes = history.pages.flatMap((p) => [
-    ...p.drafts.map((e) => ({ ...e, lane: 1, title: p.title })),
-    ...p.published.map((e) => ({ ...e, lane: 2, title: p.title })),
-  ])
+  const titleOf = new Map(history.pages.map((p) => [p.source, p.title]))
+  const changes = [
+    ...history.pages.flatMap((p) => [
+      ...p.drafts.map((e) => ({ ...e, lane: 1, title: p.title })),
+      ...p.published.map((e) => ({ ...e, lane: 2, title: p.title })),
+    ]),
+    ...(history.declined ?? []).map((d) => ({
+      sha: `#${d.number}`,
+      number: d.number,
+      date: d.date,
+      lane: 3,
+      title: d.files?.map((f) => titleOf.get(f)).find(Boolean) ?? "The book",
+      summary: `declined: ${d.summary}`,
+      who: d.who?.name ?? "a reader",
+    })),
+  ]
   const dates = [...changes.map((c) => c.date), ...history.releases.map((r) => r.date)]
     .filter(Boolean)
     .sort()
@@ -2311,15 +2333,15 @@ export function swimlaneSvg(history, { width = 760 } = {}) {
   const right = 16
   const top = 22
   const lane = 34
-  const height = top + lane * 3 + 26
+  const height = top + lane * 4 + 26
   const t0 = Date.parse(dates[0] ?? "2026-01-01")
   const t1 = Math.max(Date.parse(dates.at(-1) ?? "2026-01-01"), t0 + 86400000)
   const x = (d) => (left + ((Date.parse(d) - t0) / (t1 - t0)) * (width - left - right)).toFixed(1)
   const y = (l) => top + lane * l + lane / 2
-  const names = ["Proposed", "Being edited", "Published"]
+  const names = ["Proposed", "Being edited", "Published", "Declined"]
   const out = [
     `<svg class="tb-swimlane" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="tb-swim-t" xmlns="http://www.w3.org/2000/svg">`,
-    `<title id="tb-swim-t">The book's changes over time: ${changes.filter((c) => c.lane === 2).length} published, ${changes.filter((c) => c.lane === 1).length} being edited${history.releases.length ? `, and ${history.releases.length} release${history.releases.length === 1 ? "" : "s"}` : ""}.</title>`,
+    `<title id="tb-swim-t">The book's changes over time: ${changes.filter((c) => c.lane === 2).length} published, ${changes.filter((c) => c.lane === 1).length} being edited, ${changes.filter((c) => c.lane === 3).length} declined${history.releases.length ? `, and ${history.releases.length} release${history.releases.length === 1 ? "" : "s"}` : ""}.</title>`,
   ]
   names.forEach((n, l) => {
     out.push(
@@ -2330,7 +2352,7 @@ export function swimlaneSvg(history, { width = 760 } = {}) {
   for (const r of history.releases) {
     const rx = x(r.date)
     out.push(
-      `<line class="tb-swim-release" x1="${rx}" x2="${rx}" y1="${top - 6}" y2="${top + lane * 3}"/>`,
+      `<line class="tb-swim-release" x1="${rx}" x2="${rx}" y1="${top - 6}" y2="${top + lane * 4}"/>`,
     )
     out.push(
       `<text class="tb-swim-release-label" x="${rx}" y="${top - 9}" text-anchor="middle">${escHtml(RELEASE_LABEL(r.tag))}</text>`,
@@ -2339,9 +2361,18 @@ export function swimlaneSvg(history, { width = 760 } = {}) {
   for (const c of [...changes].sort(
     (a, b) => a.date.localeCompare(b.date) || a.sha.localeCompare(b.sha),
   )) {
-    out.push(
-      `<circle class="tb-swim-dot" data-lane="${c.lane}" cx="${x(c.date)}" cy="${y(c.lane)}" r="5" tabindex="0"><title>${escHtml(`${c.date} · ${c.title}: ${c.summary} (${c.who})`)}</title></circle>`,
-    )
+    const title = `<title>${escHtml(`${c.date} · ${c.title}: ${c.summary} (${c.who})`)}</title>`
+    if (c.lane === 3) {
+      // Declined: a ring with a cross, drawn with strokes only (a group, focusable, one title).
+      const cx = Number(x(c.date))
+      const cy = y(c.lane)
+      out.push(
+        `<g class="tb-swim-dot tb-swim-declined" data-lane="3" data-number="${c.number}" tabindex="0" fill="none" stroke="currentColor" stroke-width="1.5">${title}<circle cx="${cx}" cy="${cy}" r="5"/><path d="M${(cx - 3).toFixed(1)} ${cy - 3}L${(cx + 3).toFixed(1)} ${cy + 3}M${(cx + 3).toFixed(1)} ${cy - 3}L${(cx - 3).toFixed(1)} ${cy + 3}"/></g>`,
+      )
+    } else
+      out.push(
+        `<circle class="tb-swim-dot" data-lane="${c.lane}" cx="${x(c.date)}" cy="${y(c.lane)}" r="5" tabindex="0">${title}</circle>`,
+      )
   }
   if (dates.length) {
     out.push(`<text class="tb-swim-axis" x="${left}" y="${height - 8}">${dates[0]}</text>`)
@@ -2360,6 +2391,7 @@ export function historyPageMarkdown(history, { repo }) {
     .sort((a, b) => b.date.localeCompare(a.date) || a.title.localeCompare(b.title))
     .slice(0, 30)
   const releases = [...history.releases].reverse()
+  const declined = (history.declined ?? []).slice(0, 30)
   return [
     "---",
     "title: Book history",
@@ -2367,7 +2399,7 @@ export function historyPageMarkdown(history, { repo }) {
     "paragraphNumbers: false",
     "---",
     "",
-    "Every change to this book, in three states: **Proposed** (sent by a reader, waiting for the authors), **Being edited** (accepted, not yet published) and **Published** (what you read). Releases are marked as milestones.",
+    "Every change to this book, in four states: **Proposed** (sent by a reader, waiting for the authors), **Being edited** (accepted, not yet published), **Published** (what you read) and **Declined** (the authors decided against it, and said why). Releases are marked as milestones.",
     "",
     `<figure class="tb-swim">${swimlaneSvg(history)}</figure>`,
     "",
@@ -2395,6 +2427,17 @@ export function historyPageMarkdown(history, { repo }) {
         )
       : ["Nothing published yet."]),
     "",
+    ...(declined.length
+      ? [
+          "## Recently declined",
+          "",
+          ...declined.map(
+            (d) =>
+              `- ${d.date}, ${/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/\d+$/.test(d.url ?? "") ? `[#${d.number}](${d.url})` : `#${d.number}`}: ${mdText(d.summary)} (${mdText(d.who?.name ?? "a reader")}). Declined${d.decliner ? ` by ${mdText(d.decliner)}` : ""}: ${d.reason ? mdText(d.reason.replace(/\s+/g, " ")) : "No reason was recorded."}`,
+          ),
+          "",
+        ]
+      : []),
     "</div>",
     "",
   ].join("\n")

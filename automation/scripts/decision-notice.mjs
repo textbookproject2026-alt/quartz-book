@@ -10,9 +10,11 @@
 //   **Submitted by:** @login (signed in with GitHub)    (a note to the authors)
 // An anonymous one (a name in a code span) gets no comment: there is nobody to
 // mention. What: a merged pull request, or an issue closed as completed, is
-// accepted; closed otherwise, declined. Why: the last comment (or review) by
-// someone other than the contributor and the platform's bots, quoted. Where: the
-// page on the book's site, when accepted.
+// accepted; closed otherwise, declined. Why: the reason the author gave when
+// declining in the author site (batch 2c: the App's tb-declined comment, under
+// the member's name), else the last comment (or review) by someone other than the
+// contributor and the platform's bots, quoted. Where: the page on the book's
+// site, when accepted.
 //
 // Reads the event (GITHUB_EVENT_PATH) and the book's registry entry; writes one
 // comment with GITHUB_TOKEN, and none if one is already there (a re-run).
@@ -49,12 +51,28 @@ const isBot = (user) => !user || user.type === 'Bot' || /\[bot\]$/.test(user.log
  * contributor. `items` are GitHub's issue comments and pull request reviews.
  */
 export function reasonOf(items, contributor) {
+  const given = items.map(declinedReason).filter(Boolean).at(-1);
+  if (given) return given;
   const said = items
     .filter((c) => (c.body ?? '').trim() && !isBot(c.user) && c.user.login.toLowerCase() !== contributor.toLowerCase())
     .filter((c) => !(c.body ?? '').includes(MARKER))
     .map((c) => ({ at: c.submitted_at ?? c.created_at, body: c.body.trim(), who: c.user.login }))
     .sort((a, b) => (a.at < b.at ? -1 : 1));
   return said.at(-1) ?? null;
+}
+
+const READER_APP_LOGIN = 'textbook-suggest-edit[bot]';
+/** The author site's decline (batch 2c): { body, name } from the App's marker, or null. */
+export function declinedReason(c) {
+  if (c?.user?.login !== READER_APP_LOGIN) return null;
+  const m = /^<!-- tb-declined (\{.*?\}) -->/.exec(String(c.body ?? ''));
+  if (!m) return null;
+  try {
+    const d = JSON.parse(m[1]);
+    return typeof d?.reason === 'string' && d.reason.trim() ? { at: c.created_at, body: d.reason.trim(), name: String(d.name ?? '').slice(0, 80) || 'The authors' } : null;
+  } catch {
+    return null;
+  }
 }
 
 /** "> " before every line, so the reason reads as a quote; long ones cut. */
@@ -80,7 +98,7 @@ export function decisionComment({ event, book, items }) {
   const what = pr ? 'your proposed edit' : para ? `your note on ¶${para.n}` : 'your note';
   const lines = [MARKER, `@${who}, the authors have ${ok ? 'accepted' : 'declined'} ${what}. Thank you for it.`];
   const reason = reasonOf(items, who);
-  if (reason) lines.push('', `@${reason.who} wrote:`, '', quote(reason.body));
+  if (reason) lines.push('', reason.name ? `${reason.name} gave this reason:` : `@${reason.who} wrote:`, '', quote(reason.body.replace(/@/g, '@\u200b')));
   if (ok && page) {
     const live = !pr || event.pull_request.base?.ref === book.content.live_branch;
     lines.push(

@@ -46,6 +46,22 @@ import {
 import { isAutomation } from "../automation/scripts/lib/credits.mjs"
 import { quartzUrl } from "../automation/scripts/backup-annotations.mjs"
 
+/** The book's declined items from the function (batch 2c); [] when it can't be asked. */
+async function fetchDeclined(revisionEndpoint) {
+  try {
+    const url = new URL("history", revisionEndpoint)
+    url.searchParams.set("book", new URL(revisionEndpoint).searchParams.get("book") ?? "")
+    url.searchParams.set("declined", "1")
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const d = await res.json()
+    return Array.isArray(d?.declined) ? d.declined : []
+  } catch (err) {
+    console.warn(`prepare: declined items not read (${err.message}); the page's script asks again`)
+    return []
+  }
+}
+
 const BUILDER = resolve(import.meta.dirname, "..")
 const [bookDir, branch, workDir, registryFile] = process.argv.slice(2)
 
@@ -326,7 +342,11 @@ try {
       ),
     }
   }
-  const history = historyData({ files: historyFilesData, pages: historyPages, releases })
+  // What the authors declined (batch 2c): the function's /api/history, read with the
+  // App; the build has no GitHub access of its own. Without an answer the history
+  // still builds, and the page's script asks again when it is opened.
+  const declined = facts.revisionEndpoint ? await fetchDeclined(facts.revisionEndpoint) : []
+  const history = historyData({ files: historyFilesData, pages: historyPages, releases, declined })
   writeFileSync(join(workDir, "history-data.json"), JSON.stringify(history) + "\n")
   // The marker's other_commit: the other branch's head, as fetched beside the build.
   const otherRef = branch === live ? draftsRef : branch === draftsBranch ? liveRef : null
