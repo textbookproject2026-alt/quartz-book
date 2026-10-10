@@ -381,13 +381,31 @@ test("declined (batch 2c): a fourth lane of crossed rings, and a plain list that
       decliner: "Alec Gordon",
       comments: [],
     },
-    { kind: "note", number: 9, url: "javascript:x", date: "2026-10-01", summary: "s", who: null, files: [], reason: null, decliner: null, comments: [] },
+    {
+      kind: "note",
+      number: 9,
+      url: "javascript:x",
+      date: "2026-10-01",
+      summary: "s",
+      who: null,
+      files: [],
+      reason: null,
+      decliner: null,
+      comments: [],
+    },
   ]
   const h = historyData({ files: histFiles, pages: histPages, releases: histReleases, declined })
-  assert.deepEqual(h.declined.map((d) => d.number), [14, 9])
+  assert.deepEqual(
+    h.declined.map((d) => d.number),
+    [14, 9],
+  )
   const svg = swimlaneSvg(h)
   assert.ok(svg.includes(">Declined</text>"))
-  assert.ok(svg.includes('<g class="tb-swim-dot tb-swim-declined" data-lane="3" data-number="14" tabindex="0" fill="none" stroke="currentColor" stroke-width="1.5"><title>2026-10-09 · C &lt;one&gt;: declined: A [link](javascript:alert(1)) &lt;b&gt;bold&lt;/b&gt; (Ann *Reader*)</title>'))
+  assert.ok(
+    svg.includes(
+      '<g class="tb-swim-dot tb-swim-declined" data-lane="3" data-number="14" tabindex="0" fill="none" stroke="currentColor" stroke-width="1.5"><title>2026-10-09 · C &lt;one&gt;: declined: A [link](javascript:alert(1)) &lt;b&gt;bold&lt;/b&gt; (Ann *Reader*)</title>',
+    ),
+  )
   assert.equal((svg.match(/tb-swim-declined/g) ?? []).length, 2)
   assert.match(svg, /2 declined/)
   const md = historyPageMarkdown(h, { repo: "o/b" })
@@ -398,7 +416,10 @@ test("declined (batch 2c): a fourth lane of crossed rings, and a plain list that
     ),
     md,
   )
-  assert.ok(md.includes("- 2026-10-01, #9: s (a reader). Declined: No reason was recorded."), "a link that isn't GitHub's is not a link")
+  assert.ok(
+    md.includes("- 2026-10-01, #9: s (a reader). Declined: No reason was recorded."),
+    "a link that isn't GitHub's is not a link",
+  )
 })
 
 test("the marker names the other branch's head: a build is stale when either branch moves", () => {

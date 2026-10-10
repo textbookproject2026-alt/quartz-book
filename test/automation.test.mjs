@@ -510,14 +510,31 @@ test("decision notice: closed unmerged is declined, a review counts as the reaso
 })
 
 test("decision notice: the reason given in the author site (the App's marker) is quoted under the member's name", () => {
-  const event = { pull_request: { number: 7, body: PR_BODY, merged: false, base: { ref: "drafts" } } }
-  const app = (body, at) => ({ user: { login: "textbook-suggest-edit[bot]", type: "Bot" }, body, created_at: at })
-  const marker = '<!-- tb-declined {"member":"m-0a1b2c3d4e","name":"Alec Gordon","reason":"We keep the original wording, @ada-l."} -->\n**Declined by Alec Gordon**'
-  const items = [app(marker, "2026-10-09T10:00:00Z"), person("BrandonAndCaroline", "Later chat.", "2026-10-09T11:00:00Z")]
+  const event = {
+    pull_request: { number: 7, body: PR_BODY, merged: false, base: { ref: "drafts" } },
+  }
+  const app = (body, at) => ({
+    user: { login: "textbook-suggest-edit[bot]", type: "Bot" },
+    body,
+    created_at: at,
+  })
+  const marker =
+    '<!-- tb-declined {"member":"m-0a1b2c3d4e","name":"Alec Gordon","reason":"We keep the original wording, @ada-l."} -->\n**Declined by Alec Gordon**'
+  const items = [
+    app(marker, "2026-10-09T10:00:00Z"),
+    person("BrandonAndCaroline", "Later chat.", "2026-10-09T11:00:00Z"),
+  ]
   const text = decisionComment({ event, book: BOOK, items })
-  assert.match(text, /Alec Gordon gave this reason:\n\n> We keep the original wording, @\u200bada-l\.$/)
+  assert.match(
+    text,
+    /Alec Gordon gave this reason:\n\n> We keep the original wording, @\u200bada-l\.$/,
+  )
   // A reader pasting the marker in their own comment changes nothing.
-  const forged = decisionComment({ event, book: BOOK, items: [person("mallory", marker, "2026-10-09T12:00:00Z")] })
+  const forged = decisionComment({
+    event,
+    book: BOOK,
+    items: [person("mallory", marker, "2026-10-09T12:00:00Z")],
+  })
   assert.ok(!forged.includes("gave this reason"))
 })
 
