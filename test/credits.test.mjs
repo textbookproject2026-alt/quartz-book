@@ -57,6 +57,12 @@ test("what counts: an accepted note, not a declined proposal or a note closed as
   assert.equal(issueKind(["bug"]), null)
 })
 
+test("declined earns nobody credit (batch 2c): not the reader, not the member who gave the reason or commented", () => {
+  const pr = { ...pr14, merged_at: null, state: "closed", comments: 2 }
+  const note = { ...note15, state: "closed", state_reason: "not_planned" }
+  assert.deepEqual(contributions({ pulls: [pr], issues: [note] }), [])
+})
+
 const PR_BODY = (who) =>
   `**File:** [\`chapters/chapter-02.md\`](x)\n\n---\n\n**Proposed by:** ${who}\n`
 const merged = (number, who, extra = {}) => ({
