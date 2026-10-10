@@ -314,7 +314,6 @@ function renderPage({ ledger, pages, config }) {
   out.push('## How credit works', '');
   out.push('- **Authors** wrote the book or a chapter, and **editors** edited it. Both are named on the pages they worked on, and both are in every citation: a chapter is cited by its authors, with the book\'s editors as the book\'s; a book with editors and no authors of its own is cited by its editors.');
   out.push('- **Contributors** are readers whose work the authors accepted: an edit proposed with *Edit this page* and merged, a note to the authors or a suggested edit the authors acted on, or an edit by one of the book\'s team in the author site. Each is thanked at the foot of the pages they changed and listed here. Contributors are not part of the citation.');
-  out.push('- Only people are credited. Software that helps make the book (the platform\'s own accounts, bots, AI tools such as Claude) is never named as an author, an editor or a contributor.');
   out.push('- Something the authors decline earns no credit. Someone who sent a suggestion without signing in is credited by the name they gave.');
   out.push('- To be left off this page, or to have two names counted as one person, ask the authors: they record it in `community/credit-overrides.yml`.', '');
   out.push('---', '');
