@@ -202,6 +202,39 @@ jobs:
           fi
           curl -fsS -X POST "$HOOK" -o /dev/null && echo "Portal rebuild requested."
 
+  # The c4n-api Worker keeps each book's History lists, reader names and editor
+  # pages worked out ahead (suggest-edit-function's refresh.yml, batch 2d). After a
+  # run that built a book, ask it to refresh now rather than at its next 15-minute
+  # tick. Optional: it never fails the run, and the tick catches up either way.
+  api-cache:
+    needs: [plan, book]
+    if: always() && github.ref == 'refs/heads/main' && needs.book.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    continue-on-error: true
+    permissions: {}
+    steps:
+      - name: The quartz-book bot App's token, for suggest-edit-function only
+        id: app
+        if: vars.BOT_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: suggest-edit-function
+          permission-contents: write
+
+      - name: Ask for a refresh
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::No token for suggest-edit-function: the API's cache refreshes at its next 15-minute tick instead."
+            exit 0
+          fi
+          gh api "repos/${{ github.repository_owner }}/suggest-edit-function/dispatches" -f event_type=book-built > /dev/null && echo "Refresh requested."
+
   # The extras pin bot (§4b): on the tick, if quartz-edition-extras' main is
   # ahead of the pin and no pull request for that commit was ever opened, start
   # bump-extras.yml. It rides this clock because a GitHub `schedule:` in this
