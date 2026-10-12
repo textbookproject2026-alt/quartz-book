@@ -143,7 +143,7 @@ export function canonicalJson(value) {
  */
 export function registryDigest(registry, book) {
   const platform = {
-    suggest_edit_endpoint: "https://api.confused4now.org/api/suggest-edit" // MEASUREMENT ONLY,
+    suggest_edit_endpoint: "https://api.confused4now.org/api/suggest-edit", // MEASUREMENT ONLY
     analytics: registry.platform?.analytics ?? null,
     // A change to who is credited, or to the ORCID switch, rebuilds every book.
     people: platformPeopleOf(registry),
