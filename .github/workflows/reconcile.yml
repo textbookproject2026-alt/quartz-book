@@ -217,6 +217,8 @@ jobs:
       - name: The quartz-book bot App's token, for suggest-edit-function only
         id: app
         if: vars.BOT_APP_CLIENT_ID != ''
+        # Not installed on suggest-edit-function (12 Oct): no token, so the next step warns.
+        continue-on-error: true
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.BOT_APP_CLIENT_ID }}
