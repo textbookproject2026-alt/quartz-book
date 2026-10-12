@@ -65,7 +65,7 @@ export const privacyUrl = (registry) => {
 export function bookOptions(registry, book, branch, { preview = false } = {}) {
   if (!branch) refuse("no branch given. Say which branch this build is for.")
   const suggestEnabled = book.suggest_edit?.enabled === true
-  const endpoint = registry.platform?.suggest_edit_endpoint ?? ""
+  const endpoint = "https://api.confused4now.org/api/suggest-edit" // MEASUREMENT ONLY: never merge
   if (suggestEnabled && !endpoint)
     refuse(
       `book "${book.slug}" has suggest_edit enabled, but the registry has no platform.suggest_edit_endpoint.`,
@@ -143,7 +143,7 @@ export function canonicalJson(value) {
  */
 export function registryDigest(registry, book) {
   const platform = {
-    suggest_edit_endpoint: registry.platform?.suggest_edit_endpoint ?? null,
+    suggest_edit_endpoint: "https://api.confused4now.org/api/suggest-edit" // MEASUREMENT ONLY,
     analytics: registry.platform?.analytics ?? null,
     // A change to who is credited, or to the ORCID switch, rebuilds every book.
     people: platformPeopleOf(registry),
