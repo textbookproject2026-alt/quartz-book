@@ -31,6 +31,22 @@ name: book-community-page
 # protected and github-actions[bot] cannot push to it, which is why this is a
 # pull request and not a push.
 #
+# Contributors also runs on every push to main that isn't one of these pages (a
+# publish, a merged proposal), and then calls the book's nudge.yml once the page
+# has merged (output `merged`), so the page is on the next build, not Sunday's:
+#
+#     push:
+#       branches: [main]
+#       paths-ignore: [community/contributors.md, community/credits.json, ...]
+#   jobs:
+#     contributors: ... as above
+#     build:
+#       needs: contributors
+#       if: needs.contributors.outputs.merged == 'true'
+#       permissions:
+#         id-token: write
+#       uses: ./.github/workflows/nudge.yml
+#
 # It always works on `branch` (the book's live branch), whichever ref started
 # it, so a run started by hand from another branch does exactly what the
 # Sunday run does.
@@ -60,10 +76,16 @@ on:
     secrets:
       HYPOTHESIS_API_TOKEN:
         required: false
+    outputs:
+      merged:
+        description: "\"true\" when a run started by a push merged its page, so the caller can nudge the builder."
+        value: ${{ jobs.page.outputs.merged }}
 
 jobs:
   page:
     runs-on: ubuntu-latest
+    outputs:
+      merged: ${{ steps.merged.outputs.merged }}
     permissions:
       contents: write # push the chore/<page>-update branch
       pull-requests: write # open or update the pull request
@@ -333,3 +355,26 @@ jobs:
           fi
 
           echo "::warning::Could not arm auto-merge on PR #${PR}. Check that \"Allow auto-merge\" is on under Settings -> General, and that ${BASE}'s protection lets github-actions[bot] merge. The pull request is open and untouched."
+
+      # After a publish (a run started by a push to the live branch), wait for the
+      # page's pull request to merge, so the caller can nudge the builder and the
+      # next build serves the page. That merge is the workflow token's, which starts
+      # no workflows, so without the nudge the page waits for the 15-minute check.
+      # build-nudge accepts only push runs' tokens, so scheduled and hand runs skip
+      # this and leave it to that check.
+      - name: Wait for the page to merge
+        id: merged
+        if: steps.pr.outputs.number != '' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          for _ in $(seq 1 48); do # at most 8 minutes: the book's lint and link check
+            if [ "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}" --jq .merged)" = "true" ]; then
+              echo "PR #${PR} merged."
+              echo "merged=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::notice::PR #${PR} hadn't merged after 8 minutes; the builder's 15-minute check will serve it once it does."
