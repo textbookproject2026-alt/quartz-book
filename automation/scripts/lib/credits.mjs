@@ -286,7 +286,13 @@ export function buildLedger({ contributions: items, overrides = {}, listed = [] 
       return { person, names: g.names, items: g.items };
     })
     .filter(({ person, names }) => !o.hide.some((h) => matches(person, h) || names.has(nameKey(h.replace(/^@/, '')))))
-    .filter(({ person, names }) => !listed.some((l) => (l.github && (person.github?.toLowerCase() === l.github.toLowerCase() || names.has(l.github.toLowerCase()))) || names.has(nameKey(l.name)) || nameKey(person.name) === nameKey(l.name)));
+    .filter(({ person, names }) => !listed.some((l) => (l.github && (person.github?.toLowerCase() === l.github.toLowerCase() || names.has(l.github.toLowerCase()))) || names.has(nameKey(l.name)) || nameKey(person.name) === nameKey(l.name)))
+    // A shared account named for listed people only ("Brandon Sommer and Caroline
+    // Laschkolnig", both authors) is those people, already credited above.
+    .filter(({ names }) => ![...names].some((n) => {
+      const parts = n.split(/\s*(?:,|&|\band\b)\s*/).filter(Boolean);
+      return parts.length > 1 && parts.every((p) => listed.some((l) => nameKey(l.name) === p));
+    }));
   return {
     version: LEDGER_VERSION,
     contributors: people
