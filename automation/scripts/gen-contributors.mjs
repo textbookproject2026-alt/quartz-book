@@ -53,7 +53,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { loadBook, field, isString, isStringArray, exitOnRegistryError, RegistryError } from './lib/registry.mjs';
-import { buildLedger, contributions, isAutomation, KINDS, pageAnchor, peopleOf } from './lib/credits.mjs';
+import { AUTHOR_SITE, buildLedger, contributions, isAutomation, MEMBER_EMAIL, MEMBER_LINE, pageAnchor, peopleOf } from './lib/credits.mjs';
 
 // The book's clone. These scripts live in the platform repo, not in the book.
 const REPO_ROOT = path.resolve(process.env.BOOK_ROOT || '.');
@@ -163,6 +163,33 @@ function readPageTouches() {
   return touches;
 }
 
+/** A page's text after its frontmatter block. */
+const bodyOf = (text) => {
+  const t = text.replace(/\r\n/g, '\n').trimStart();
+  const m = /^---\n[\s\S]*?\n---(?:\n|$)/.exec(t);
+  return (m ? t.slice(m[0].length) : t).trim();
+};
+
+/** A file at a commit, or '' (not there: added, deleted, or the first commit). */
+const fileAt = (rev, file) => {
+  try {
+    return execFileSync('git', ['-C', REPO_ROOT, 'show', `${rev}:${file}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
+  } catch { return ''; }
+};
+
+/** The pages a commit changed the text of. A change only to a page's frontmatter
+ *  (its credits, title, tags or summary) is the page's metadata, not its writing,
+ *  and earns no contributor credit (Alec, 13 Oct 2026). Read only for commits that
+ *  could count, so a long history costs two `git show`s per author-site edit. */
+const textPages = (c) => c.pages.filter((f) => bodyOf(fileAt(`${c.sha}^`, f)) !== bodyOf(fileAt(c.sha, f)));
+const mayCount = (c) => c.proposer || AUTHOR_SITE.test(c.body) || MEMBER_EMAIL.test(c.email) || MEMBER_LINE.test(c.body);
+
+/** "chapter-01" as a reader would title it: "Chapter 1". For a page with no title and no H1. */
+const titleFromFile = (file) => {
+  const words = path.basename(file, '.md').replace(/[-_]+/g, ' ').replace(/\b0+(\d)/g, '$1').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 /** A page's frontmatter (as YAML) and body; {} when it has none or it doesn't parse. */
 async function readPage(file) {
   let text = '';
@@ -178,7 +205,7 @@ async function readPage(file) {
   return { fm, body: m ? text.trimStart().slice(m[0].length) : text };
 }
 
-/** The book's pages that exist now: path -> { title, authors, editors } (frontmatter title, else H1, else the file name). */
+/** The book's pages that exist now: path -> { title, authors, editors } (frontmatter title, else H1, else one made from the file name: never the file name itself). */
 async function readPages() {
   const tracked = git('ls-files', '--', ...PAGE_PATHS).split('\n').filter((f) => f.endsWith('.md'));
   const pages = new Map();
@@ -186,7 +213,7 @@ async function readPages() {
     const page = await readPage(file);
     if (!page) continue;
     const h1 = /^#\s+(.+?)\s*#*\s*$/m.exec(page.body)?.[1];
-    const title = String(page.fm.title ?? '').trim() || h1 || path.basename(file, '.md');
+    const title = String(page.fm.title ?? '').trim() || h1 || titleFromFile(file);
     pages.set(file, {
       title,
       authors: peopleOf(page.fm.authors ?? page.fm.author),
@@ -249,7 +276,9 @@ async function readGitHub(repo) {
 
 const wikilink = (file, label) => `[[${file.replace(/\.md$/, '')}\\|${label}]]`;
 const escapeCell = (s) => s.replaceAll('|', '\\|');
-const KIND_WORDS = { edit: ['edit', 'edits'], note: ['note', 'notes'], suggestion: ['suggestion', 'suggestions'], commit: ['commit', 'commits'] };
+// What readers read: a proposed edit and an edit in the author site are both edits
+// (the ledger keeps them apart as edit and commit).
+const COUNT_WORDS = [[['edit', 'commit'], 'edit', 'edits'], [['note'], 'note', 'notes'], [['suggestion'], 'suggestion', 'suggestions']];
 
 /** A person's name, linked to their GitHub profile and ORCID record where known. */
 function personLine(p) {
@@ -292,7 +321,8 @@ function renderPage({ ledger, pages, config }) {
     out.push(`${plural(ledger.contributors.length, 'person', 'people')} ${ledger.contributors.length === 1 ? 'has' : 'have'} contributed so far.`, '');
     out.push('| Contributor | Contributions | Pages | References |', '| --- | --- | --- | --- |');
     for (const c of ledger.contributors) {
-      const counts = KINDS.filter((k) => c.counts[k]).map((k) => `${c.counts[k]} ${KIND_WORDS[k][c.counts[k] === 1 ? 0 : 1]}`).join(', ');
+      const counts = COUNT_WORDS.map(([kinds, one, many]) => [kinds.reduce((n, k) => n + (c.counts[k] ?? 0), 0), one, many])
+        .filter(([n]) => n).map(([n, one, many]) => plural(n, one, many)).join(', ');
       const on = [...new Set(c.contributions.flatMap((x) => x.pages))].filter((f) => pages.has(f)).sort();
       // The proposals and notes, linked; commits are in the count (and the page history).
       const refs = c.contributions.filter((x) => x.kind !== 'commit' && x.url).map((x) => `[${x.ref}](${x.url})`);
@@ -313,7 +343,7 @@ function renderPage({ ledger, pages, config }) {
 
   out.push('## How credit works', '');
   out.push('- **Authors** wrote the book or a chapter, and **editors** edited it. Both are named on the pages they worked on, and both are in every citation: a chapter is cited by its authors, with the book\'s editors as the book\'s; a book with editors and no authors of its own is cited by its editors.');
-  out.push('- **Contributors** are readers whose work the authors accepted: an edit proposed with *Edit this page* and merged, a note to the authors or a suggested edit the authors acted on, or an edit by one of the book\'s team in the author site. Each is thanked at the foot of the pages they changed and listed here. Contributors are not part of the citation.');
+  out.push('- **Contributors** are readers whose work the authors accepted: an edit proposed with *Edit this page* and merged, a note to the authors or a suggested edit the authors acted on, or an edit to a page\'s text by one of the book\'s team in the author site (a change to a page\'s credits or title alone isn\'t a contribution). Each is thanked at the foot of the pages they changed and listed here. Contributors are not part of the citation.');
   out.push('- Something the authors decline earns no credit. Someone who sent a suggestion without signing in is credited by the name they gave.');
   out.push('- To be left off this page, or to have two names counted as one person, ask the authors: they record it in `community/credit-overrides.yml`.', '');
   out.push('---', '');
@@ -340,6 +370,8 @@ async function readConfig() {
     orcid: registry.platform?.features?.orcid !== false,
     repo: field(book, 'content.repo', isString, 'owner/name'),
     title: field(book, 'title', isString, 'a title'),
+    // The author site's members, id -> current name: one row per member however their name was spelt.
+    members: new Map((Array.isArray(book.members) ? book.members : []).filter((m) => m?.id && m?.name).map((m) => [m.id, m.name])),
     licence: field(book, 'licence', isString, 'an SPDX id'),
   };
 }
@@ -362,7 +394,8 @@ async function main() {
   // The registry's `authors` (who may use the author site) aren't the book's authors:
   // only the frontmatter names those.
   const { pulls, issues } = await readGitHub(config.repo);
-  const commits = readCommits();
+  // Pages whose text changed only: a credits or title change earns nothing.
+  const commits = readCommits().map((c) => (mayCount(c) ? { ...c, pages: textPages(c) } : c));
   // Only people: the registry's automation lists, plus any login GitHub says is a Bot.
   const firstPass = isAutomation({ logins: config.logins, identities: config.identities });
   const candidates = contributions({ pulls, issues, commits, automation: firstPass });
@@ -373,7 +406,7 @@ async function main() {
     page.editors = page.editors.filter((p) => !automation(p)).map((p) => (config.orcid ? p : withoutOrcid(p)));
   }
   const listed = [...pages.values()].flatMap((p) => [...p.authors, ...p.editors]);
-  const items = contributions({ pulls, issues, commits, repoUrl: `https://github.com/${config.repo}`, automation });
+  const items = contributions({ pulls, issues, commits, repoUrl: `https://github.com/${config.repo}`, automation, members: config.members });
   const ledger = buildLedger({ contributions: items, overrides: await readOverrides(), listed });
   const ledgerText = `${JSON.stringify(ledger, null, 2)}\n`;
   const page = renderPage({ ledger, pages, config });
