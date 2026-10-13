@@ -284,3 +284,100 @@ test("people: names or { name, orcid, github }, as the builder reads them", () =
   )
   assert.deepEqual(peopleOf("A, B"), [{ name: "A" }, { name: "B" }])
 })
+
+test("one person, one row: GitHub login, member id, noreply address or normalised name; merge: with one group left still names it", () => {
+  const commit = (sha, name, email, body, pages = ["chapters/a.md"]) => ({
+    sha: sha.padEnd(40, "0"),
+    name,
+    email,
+    date: "2026-10-13T00:00:00Z",
+    subject: "Edit",
+    body,
+    proposer: null,
+    pages,
+  })
+  const items = contributions({
+    members: new Map([["m-ab12", "Alec Gordon"]]),
+    commits: [
+      commit(
+        "a1",
+        "Alec G",
+        "m-ab12@users.noreply.confused4now.org",
+        "Sent by Alec G (member m-ab12) via the author site.",
+      ),
+      commit(
+        "a2",
+        "Someone",
+        "x@example.invalid",
+        "Sent by Someone (member m-ab12) via the author site.",
+      ),
+      commit(
+        "b1",
+        "Bo  Reader",
+        "1+bo-r@users.noreply.github.com",
+        "Sent by @bo-r via the author site.",
+      ),
+    ],
+    issues: [
+      {
+        number: 3,
+        state_reason: "completed",
+        closed_at: "2026-10-01T00:00:00Z",
+        html_url: "u3",
+        labels: [{ name: "section-note" }],
+        body: "**File:** [`chapters/a.md`](x)\n\n**Submitted by:** @bo-r (signed in with GitHub)\n",
+      },
+      {
+        number: 4,
+        state_reason: "completed",
+        closed_at: "2026-10-01T00:00:00Z",
+        html_url: "u4",
+        labels: [{ name: "suggested-edit" }],
+        body: "**File:** [`chapters/a.md`](x)\n\n**Submitted by:** `bo   READER`\n",
+      },
+      {
+        number: 5,
+        state_reason: "completed",
+        closed_at: "2026-10-01T00:00:00Z",
+        html_url: "u5",
+        labels: [{ name: "suggested-edit" }, { name: "platform-test" }],
+        body: "**Submitted by:** `CPU measurement`\n",
+      },
+      {
+        number: 6,
+        state_reason: "completed",
+        closed_at: "2026-10-01T00:00:00Z",
+        html_url: "u6",
+        labels: [{ name: "suggested-edit" }],
+        body: "**Submitted by:** `alec`\n",
+      },
+    ],
+  })
+  const ledger = buildLedger({ contributions: items })
+  assert.deepEqual(
+    ledger.contributors.map((c) => [c.name, c.counts.commit + c.counts.note + c.counts.suggestion]),
+    [
+      ["alec", 1],
+      ["Alec Gordon", 2],
+      ["Bo  Reader", 3],
+    ],
+  )
+  // "alec" typed by a reader shares nothing with the member: the overrides join them.
+  const merged = buildLedger({
+    contributions: items,
+    overrides: { merge: [["Alec Gordon", "alec"]] },
+  })
+  assert.deepEqual(
+    merged.contributors.map((c) => c.name),
+    ["Alec Gordon", "Bo  Reader"],
+  )
+  // Only "alec" left (the member's edit was metadata only, say): still shown as Alec Gordon.
+  const alone = buildLedger({
+    contributions: items.filter((i) => i.ref === "#6"),
+    overrides: { merge: [["Alec Gordon", "alec"]] },
+  })
+  assert.deepEqual(
+    alone.contributors.map((c) => c.name),
+    ["Alec Gordon"],
+  )
+})

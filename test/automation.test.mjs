@@ -287,7 +287,7 @@ test("contributors: authors and editors from the frontmatter; contributors from 
   )
   assert.match(
     page,
-    /\| Dee Direct \(\[GitHub\]\(https:\/\/github\.com\/dee-direct\)\) \| 1 commit \|/,
+    /\| Dee Direct \(\[GitHub\]\(https:\/\/github\.com\/dee-direct\)\) \| 1 edit \|/,
   )
   for (const absent of [
     /Raw Direct/,
@@ -306,6 +306,79 @@ test("contributors: authors and editors from the frontmatter; contributors from 
   )
   assert.match(page, /## How credit works/)
   assert.match(page, /under CC-BY-4\.0, the licence/)
+})
+
+test("contributors: metadata-only edits earn nothing; one row per member; test identities and platform-test items never; titles, not file names; edits, not commits", async () => {
+  const book = creditedBook()
+  const git = (...args) => execFileSync("git", ["-C", book.dir, ...args], { encoding: "utf8" })
+  const registry = JSON.parse(readFileSync(book.registryPath, "utf8"))
+  const entry = registry.books.find((b) => b.slug === "automation-fixture")
+  entry.members = [{ id: "m-f00d", name: "Fern Member" }]
+  registry.platform.automation_identities.push("Part 3 Test Member")
+  writeFileSync(book.registryPath, JSON.stringify(registry))
+  const commitAs = (name, email, file, text, message) => {
+    writeFileSync(join(book.dir, file), text)
+    git("add", "-A")
+    git("-c", `user.name=${name}`, "-c", `user.email=${email}`, "commit", "--quiet", "-m", message)
+  }
+  const ch3 = (fm, text) => `---\n${fm}\n---\n\n# Chapter 3: Reality\n\n${text}\n`
+  // The member, under an old name, by their noreply address: writing (counts).
+  commitAs(
+    "Fern Old",
+    "m-f00d@users.noreply.confused4now.org",
+    "chapters/chapter-03.md",
+    ch3("authors: [Cee Writer]", "Text, edited by Fern."),
+    "Edit\n\nSent by Fern Old (member m-f00d) via the author site.",
+  )
+  // The same member, by the site's line alone: a page with no title or H1 (counts).
+  commitAs(
+    "Fern Member",
+    "other@example.invalid",
+    "chapters/chapter-04.md",
+    "Words.\n",
+    "New chapter\n\nSent by Fern Member (member m-f00d) via the author site.",
+  )
+  // Credits only (frontmatter): nothing.
+  commitAs(
+    "Gus Member",
+    "m-0bad@users.noreply.confused4now.org",
+    "chapters/chapter-03.md",
+    ch3("authors: [Cee Writer]\neditors: [Jim Editor]", "Text, edited by Fern."),
+    "Credits\n\nSent by Gus Member (member m-0bad) via the author site.",
+  )
+  // A test identity's writing: never.
+  commitAs(
+    "Part 3 Test Member",
+    "m-7e57@users.noreply.confused4now.org",
+    "chapters/chapter-04.md",
+    "Words, tested.\n",
+    "Edit\n\nSent by Part 3 Test Member (member m-7e57) via the author site.",
+  )
+  const api = {
+    ...API,
+    issues: [
+      ...API.issues,
+      issue(17, "completed", "`CPU measurement`", ["suggested-edit", "platform-test"]),
+    ],
+  }
+  const res = await contributorsRun(book, api, "--stdout")
+  assert.equal(res.status, 0, res.stderr)
+  const page = res.stdout
+  assert.match(
+    page,
+    /\| Fern Member \| 2 edits \| \[\[chapters\/chapter-03\\\|Chapter 3: Reality\]\], \[\[chapters\/chapter-04\\\|Chapter 4\]\] \|/,
+  )
+  assert.match(page, /- Jim Editor — \[\[chapters\/chapter-03\\\|Chapter 3: Reality\]\]/)
+  for (const absent of [
+    /Fern Old/,
+    /Gus Member/,
+    /Part 3 Test Member/,
+    /CPU measurement/,
+    /#17/,
+    /\|chapter-04\]\]/,
+    / commits?\b/,
+  ])
+    assert.doesNotMatch(page, absent)
 })
 
 test("contributors: with features.orcid off, no ORCID link (the frontmatter keeps the iD)", async () => {
@@ -349,7 +422,7 @@ test("contributors: anonymous in-site proposals by the name they gave, never the
   assert.equal(res.status, 0, res.stderr)
   assert.match(
     res.stdout,
-    /\| Jo &#60;b&#62;Reader&#60;\/b&#62; &#91;&#91;x&#93;&#93; \| 1 commit \|/,
+    /\| Jo &#60;b&#62;Reader&#60;\/b&#62; &#91;&#91;x&#93;&#93; \| 1 edit \|/,
     "plain text, whatever was typed",
   )
   assert.doesNotMatch(res.stdout, /A reader|suggest-edit\[bot\]|aldogobot/)

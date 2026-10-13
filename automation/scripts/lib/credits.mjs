@@ -27,6 +27,13 @@
 // automation_identities), any [bot] login and any GitHub account of type Bot:
 // Claude, the platform's Apps and its own account are never credited.
 //
+// Also (Alec, 13 Oct 2026): a change only to a page's frontmatter (credits, title,
+// tags, summary) earns nothing (gen-contributors passes only the pages whose text
+// changed); one person is one row, joined by GitHub login, author-site member id,
+// noreply address or normalised name; items labelled platform-test and the
+// platform's test identities (in automation_identities) are never credited; the
+// page says "edit" for both an accepted proposal and an author-site edit.
+//
 // Deterministic: contributors sorted by name, each one's contributions by
 // reference (numbered items first, then commits by date and sha), no dates of
 // generation.
@@ -39,6 +46,8 @@ export const KINDS = ['edit', 'note', 'suggestion', 'commit'];
 const LOGIN = /^@?([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})$/;
 const ORCID = /^(?:https?:\/\/orcid\.org\/)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])$/i;
 const NOREPLY = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.github\.com$/i;
+/** The member id in the author site's line for an email member: "Sent by Name (member m-…) via the author site." */
+export const MEMBER_LINE = /^Sent by .+ \(member (m-[a-z0-9][a-z0-9-]{0,39})\) via the author site\.$/m;
 /** The line the author site writes in every commit it makes for a member. */
 export const AUTHOR_SITE = /^Sent by @([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}) via the author site\.$/m;
 /** A member's platform noreply address (batch 2b: members without GitHub). */
@@ -62,6 +71,9 @@ export function isAutomation({ logins = [], identities = [], botLogins = [] } = 
     return keys.some((k) => k.includes('@') && domains.some((d) => k.endsWith(d)));
   };
 }
+
+/** A name as compared: Unicode-normalised, spaces collapsed, case-folded. */
+export const nameKey = (s) => String(s ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const list = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : v == null ? [] : [v]);
 const day = (iso) => String(iso ?? '').slice(0, 10);
@@ -87,8 +99,8 @@ export function matches(person, who) {
   if (!w) return false;
   const login = person.github?.toLowerCase();
   if (w.startsWith('@')) return login === w.slice(1).toLowerCase();
-  const l = w.toLowerCase();
-  return person.name.toLowerCase() === l || login === l;
+  const l = nameKey(w);
+  return nameKey(person.name) === l || login === l;
 }
 
 /** An issue's kind from its labels; null for one the ledger doesn't count. */
@@ -117,14 +129,19 @@ const labelled = (item, name) =>
  *   member (AUTHOR_SITE in its body, or a MEMBER_EMAIL author) or it carries a
  *   reader's Proposed-by name, and it touches the book's pages and isn't how a
  *   counted pull request landed (its head commit, or a squash ending "(#n)").
+ *   A commit's `pages` are the pages whose text it changed: gen-contributors leaves
+ *   out a page whose change was only to its frontmatter (credits, title, tags).
  * `automation`: isAutomation()'s test; whoever it matches is never credited.
+ * `members`: the registry's book members, id -> name: a member's edits carry their
+ *   member id and are shown under the name the member has now.
+ * Items labelled platform-test (the platform's own tests) never count.
  */
-export function contributions({ pulls = [], issues = [], commits = [], repoUrl = '', automation = isAutomation() }) {
+export function contributions({ pulls = [], issues = [], commits = [], repoUrl = '', automation = isAutomation(), members = new Map() }) {
   const out = [];
   const prNumbers = new Set();
   const prHeads = new Set();
   for (const pr of pulls) {
-    if (!pr.merged_at || !labelled(pr, 'proposed-edit') || labelled(pr, 'no-credit')) continue;
+    if (!pr.merged_at || !labelled(pr, 'proposed-edit') || labelled(pr, 'no-credit') || labelled(pr, 'platform-test')) continue;
     const who = personFrom(attributionOf(pr.body));
     prNumbers.add(pr.number);
     if (pr.head?.sha) prHeads.add(pr.head.sha);
@@ -132,7 +149,7 @@ export function contributions({ pulls = [], issues = [], commits = [], repoUrl =
     out.push({ who, kind: 'edit', ref: `#${pr.number}`, url: pr.html_url, date: day(pr.merged_at), pages: filesOf(pr.body) });
   }
   for (const issue of issues) {
-    if (issue.pull_request || issue.state_reason !== 'completed' || labelled(issue, 'no-credit')) continue;
+    if (issue.pull_request || issue.state_reason !== 'completed' || labelled(issue, 'no-credit') || labelled(issue, 'platform-test')) continue;
     const kind = issueKind(issue.labels ?? []);
     const who = kind && personFrom(attributionOf(issue.body));
     if (!who) continue;
@@ -145,12 +162,15 @@ export function contributions({ pulls = [], issues = [], commits = [], repoUrl =
     // Work on the repository (workflows, settings) isn't work on the book's pages.
     if (!c.pages?.length) continue;
     const viaSite = AUTHOR_SITE.exec(c.body ?? '')?.[1];
-    const member = MEMBER_EMAIL.exec(c.email ?? '')?.[1];
+    const fromEmail = MEMBER_EMAIL.exec(c.email ?? '')?.[1];
+    const memberId = fromEmail ? `m-${fromEmail}` : MEMBER_LINE.exec(c.body ?? '')?.[1];
     let who;
     if (c.proposer) who = { name: c.proposer };
     else if (viaSite) who = { name: c.name || viaSite, github: viaSite, email: c.email };
-    else if (member) who = { name: c.name, email: c.email };
+    else if (memberId) who = { name: members.get(memberId) || c.name, member: memberId, email: c.email };
     else continue; // raw git authorship never earns credit
+    const noreplyLogin = NOREPLY.exec(c.email ?? '')?.[1];
+    if (noreplyLogin && !who.github) who.github = noreplyLogin;
     out.push({
       who,
       kind: 'commit',
@@ -191,20 +211,30 @@ const noCredited = (noCredit, c) =>
 export function buildLedger({ contributions: items, overrides = {}, listed = [] }) {
   const o = overrides.noCredit instanceof Set ? overrides : normaliseOverrides(overrides);
   const groups = [];
+  // One person, one row: the same GitHub login, member id (the author site's), or
+  // display name (normalised) is the same person. A name a reader typed that shares
+  // none of these with anyone ("alec" and "Alec Gordon") is told apart: the
+  // overrides file's merge: joins them.
   const find = (who) =>
     groups.find((g) =>
       (who.github && g.github && g.github.toLowerCase() === who.github.toLowerCase()) ||
-      g.names.has(who.name.toLowerCase()) ||
+      (who.member && g.members.has(who.member)) ||
+      g.names.has(nameKey(who.name)) ||
       (who.github && g.names.has(who.github.toLowerCase())) ||
-      (g.github && g.github.toLowerCase() === who.name.toLowerCase()));
+      (g.github && g.github.toLowerCase() === nameKey(who.name)));
   for (const c of items) {
     if (noCredited(o.noCredit, c)) continue;
     let g = find(c.who);
     if (!g) {
-      g = { name: c.who.name, github: c.who.github ?? null, names: new Set(), items: [] };
+      g = { name: c.who.name, github: c.who.github ?? null, names: new Set(), members: new Set(), items: [] };
       groups.push(g);
     }
-    g.names.add(c.who.name.toLowerCase());
+    g.names.add(nameKey(c.who.name));
+    if (c.who.member) {
+      // A member is shown by the name the registry has for them now.
+      if (!g.members.size) g.name = c.who.name;
+      g.members.add(c.who.member);
+    }
     if (c.who.github) {
       g.github ??= c.who.github;
       g.names.add(c.who.github.toLowerCase());
@@ -213,14 +243,36 @@ export function buildLedger({ contributions: items, overrides = {}, listed = [] 
     } else if (g.github && g.name.toLowerCase() === g.github.toLowerCase()) g.name = c.who.name;
     g.items.push(c);
   }
+  // An item read later can link two rows made earlier (a typed name, then a commit by
+  // the login that carries it): join them until nothing more links.
+  const linked = (a, b) =>
+    (a.github && b.github && a.github.toLowerCase() === b.github.toLowerCase()) ||
+    [...a.members].some((id) => b.members.has(id)) ||
+    [...a.names].some((n) => b.names.has(n));
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = i + 1; j < groups.length; j++) {
+      if (!linked(groups[i], groups[j])) continue;
+      const [a, b] = [groups[i], groups.splice(j, 1)[0]];
+      a.items.push(...b.items);
+      for (const n of b.names) a.names.add(n);
+      // Shown as the member, else the fuller name rather than a bare login.
+      if (b.members.size && !a.members.size) a.name = b.name;
+      else if (!a.members.size && a.github && a.name.toLowerCase() === a.github.toLowerCase()) a.name = b.name;
+      for (const id of b.members) a.members.add(id);
+      a.github ??= b.github;
+      j = i; // a grew: look again from the start
+    }
+  }
   // merge: the groups named in one entry are one person, shown as the first.
   for (const set of o.merge) {
-    const members = groups.filter((g) => set.some((w) => matches({ name: g.name, github: g.github ?? undefined }, w) || g.names.has(w.replace(/^@/, '').toLowerCase())));
-    if (members.length < 2) continue;
+    const members = groups.filter((g) => set.some((w) => matches({ name: g.name, github: g.github ?? undefined }, w) || g.names.has(nameKey(w.replace(/^@/, '')))));
+    // One group alone still takes the entry's name: its other names may have no credit left.
+    if (!members.length) continue;
     const [first, ...rest] = members;
     for (const m of rest) {
       first.items.push(...m.items);
       for (const n of m.names) first.names.add(n);
+      for (const id of m.members) first.members.add(id);
       first.github ??= m.github;
       groups.splice(groups.indexOf(m), 1);
     }
@@ -230,11 +282,11 @@ export function buildLedger({ contributions: items, overrides = {}, listed = [] 
   const people = groups
     .map((g) => {
       const person = { name: g.name, ...(g.github ? { github: g.github } : {}) };
-      for (const [from, to] of Object.entries(o.rename)) if (matches(person, from) || g.names.has(from.replace(/^@/, '').toLowerCase())) person.name = to;
+      for (const [from, to] of Object.entries(o.rename)) if (matches(person, from) || g.names.has(nameKey(from.replace(/^@/, '')))) person.name = to;
       return { person, names: g.names, items: g.items };
     })
-    .filter(({ person, names }) => !o.hide.some((h) => matches(person, h) || names.has(h.replace(/^@/, '').toLowerCase())))
-    .filter(({ person, names }) => !listed.some((l) => (l.github && (person.github?.toLowerCase() === l.github.toLowerCase() || names.has(l.github.toLowerCase()))) || names.has(l.name.toLowerCase()) || person.name.toLowerCase() === l.name.toLowerCase()));
+    .filter(({ person, names }) => !o.hide.some((h) => matches(person, h) || names.has(nameKey(h.replace(/^@/, '')))))
+    .filter(({ person, names }) => !listed.some((l) => (l.github && (person.github?.toLowerCase() === l.github.toLowerCase() || names.has(l.github.toLowerCase()))) || names.has(nameKey(l.name)) || nameKey(person.name) === nameKey(l.name)));
   return {
     version: LEDGER_VERSION,
     contributors: people
