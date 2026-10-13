@@ -381,3 +381,32 @@ test("one person, one row: GitHub login, member id, noreply address or normalise
     ["Alec Gordon"],
   )
 })
+
+test("a shared account named only for listed people is those people, not a contributor", () => {
+  const items = [
+    {
+      who: { name: "Ada Author and Bo Author", member: "m-1" },
+      kind: "commit",
+      ref: "aaaaaaa",
+      url: "",
+      date: "2026-10-13",
+      pages: ["chapters/a.md"],
+    },
+    {
+      who: { name: "Ada Author and Cy Reader", member: "m-2" },
+      kind: "commit",
+      ref: "bbbbbbb",
+      url: "",
+      date: "2026-10-13",
+      pages: ["chapters/a.md"],
+    },
+  ]
+  const ledger = buildLedger({
+    contributions: items,
+    listed: [{ name: "Ada Author" }, { name: "Bo Author" }],
+  })
+  assert.deepEqual(
+    ledger.contributors.map((c) => c.name),
+    ["Ada Author and Cy Reader"],
+  )
+})
