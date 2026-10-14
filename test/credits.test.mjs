@@ -410,3 +410,31 @@ test("a shared account named only for listed people is those people, not a contr
     ["Ada Author and Cy Reader"],
   )
 })
+
+test("Review all in chapter: a proposal accepted whole (merged) and one accepted in part both credit their reader; never Claude or a bot", () => {
+  const whole = merged(21, "`Jo Reader` (`j***@example.org`)")
+  const part = {
+    ...merged(22, "`Sam Lee` (`s***@example.org`)"),
+    merged_at: null,
+    state: "closed",
+    closed_at: "2026-10-14T18:00:00Z",
+    labels: [{ name: "proposed-edit" }, { name: "accepted-in-part" }],
+  }
+  // Closed unmerged without the label is declined: no credit.
+  const declined = { ...part, number: 23, labels: [{ name: "proposed-edit" }] }
+  // Reopened for its other parts: not counted until it is closed or merged.
+  const reopened = { ...part, number: 24, state: "open" }
+  const claude = { ...part, number: 25, body: PR_BODY("`Claude` (`n***@anthropic.com`)") }
+  const bot = { ...part, number: 26, body: PR_BODY("@github-actions[bot] (signed in with GitHub)") }
+  const items = contributions({
+    pulls: [whole, part, declined, reopened, claude, bot],
+    automation: AUTOMATION,
+  })
+  assert.deepEqual(
+    items.map((c) => [c.ref, c.who.name, c.kind, c.date]),
+    [
+      ["#21", "Jo Reader", "edit", whole.merged_at.slice(0, 10)],
+      ["#22", "Sam Lee", "edit", "2026-10-14"],
+    ],
+  )
+})

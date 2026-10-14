@@ -9,7 +9,8 @@
 // The policy (Alec, 9 Oct 2026). Three roles: authors and editors (named in the
 // frontmatter, cited) and contributors (acknowledged, never cited). A
 // contributor is anyone with an accepted contribution:
-//   edit        a proposed edit (pull request labelled proposed-edit) merged
+//   edit        a proposed edit (pull request labelled proposed-edit) merged, or
+//               closed labelled accepted-in-part (Review all in chapter took some of it)
 //   note        a note on a paragraph (issue labelled section-note) closed as completed
 //   suggestion  a suggested edit (issue labelled suggested-edit) closed as completed
 //   commit      an edit a member of the book made through the author site
@@ -120,8 +121,9 @@ const labelled = (item, name) =>
  * Every accepted contribution, one per item, with who it is from:
  * { who: { name, github? }, kind, ref, url, date, pages }.
  *
- * `pulls`: closed pull requests (GitHub's shape: number, merged_at, body, labels,
- *   html_url, head.sha). Merged ones labelled proposed-edit count.
+ * `pulls`: closed pull requests (GitHub's shape: number, merged_at, closed_at, state,
+ *   body, labels, html_url, head.sha). Merged ones labelled proposed-edit count, and
+ *   closed ones labelled accepted-in-part (some of it accepted, the rest not).
  * `issues`: closed issues (number, state_reason, closed_at, body, labels, html_url).
  *   Closed as completed, of a kind issueKind knows, count.
  * `commits`: [{ sha, name, email, date, subject, body, proposer, pages }], newest
@@ -141,12 +143,15 @@ export function contributions({ pulls = [], issues = [], commits = [], repoUrl =
   const prNumbers = new Set();
   const prHeads = new Set();
   for (const pr of pulls) {
-    if (!pr.merged_at || !labelled(pr, 'proposed-edit') || labelled(pr, 'no-credit') || labelled(pr, 'platform-test')) continue;
+    // Accepted in part (the author site's Review all in chapter): closed unmerged, but
+    // some of it went into the drafts, so the reader is credited as for a merge.
+    const part = !pr.merged_at && pr.state === 'closed' && labelled(pr, 'accepted-in-part');
+    if ((!pr.merged_at && !part) || !labelled(pr, 'proposed-edit') || labelled(pr, 'no-credit') || labelled(pr, 'platform-test')) continue;
     const who = personFrom(attributionOf(pr.body));
     prNumbers.add(pr.number);
     if (pr.head?.sha) prHeads.add(pr.head.sha);
     if (!who) continue;
-    out.push({ who, kind: 'edit', ref: `#${pr.number}`, url: pr.html_url, date: day(pr.merged_at), pages: filesOf(pr.body) });
+    out.push({ who, kind: 'edit', ref: `#${pr.number}`, url: pr.html_url, date: day(pr.merged_at ?? pr.closed_at), pages: filesOf(pr.body) });
   }
   for (const issue of issues) {
     if (issue.pull_request || issue.state_reason !== 'completed' || labelled(issue, 'no-credit') || labelled(issue, 'platform-test')) continue;
