@@ -24,6 +24,8 @@ import {
   bookOptions,
   bookContents,
   bookType,
+  bookPages,
+  withDerivedTitle,
   contentsOrder,
   findBook,
   howToCommentClash,
@@ -123,6 +125,11 @@ try {
   if (opts.editionTemplateRepo)
     page += `\n---\n\n*Course coordinators: briefing notes for students are in [the department edition template's guide](https://github.com/${opts.editionTemplateRepo}/blob/main/docs/for-course-coordinators.md).*\n`
   writeFileSync(join(content, `${HOW_TO_COMMENT}.md`), page)
+  // Never a file name as a page's title (explorer, heading): see withDerivedTitle.
+  for (const path of bookPages(git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0"))) {
+    const titled = withDerivedTitle(readFileSync(join(book, path), "utf8"), path)
+    if (titled !== null) writeFileSync(join(content, path), titled)
+  }
 
   const shared = YAML.parse(readFileSync(join(BUILDER, "quartz.config.yaml"), "utf8"))
   // The Contents lists every page the explorer shows: any it misses is added at

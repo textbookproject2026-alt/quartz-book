@@ -318,6 +318,23 @@ export function pageTitle(markdown, path) {
 }
 
 /**
+ * A page with no title and no H1 gets the title pageTitle makes from its file name
+ * ("chapter-04" -> "Chapter 4"), in the copy Quartz reads: Quartz would show the
+ * file name itself, in the explorer and as the page's heading. Only frontmatter
+ * changes, so no text, paragraph number or annotation anchor moves. null when the
+ * page already has a title or an H1.
+ */
+export function withDerivedTitle(markdown, path) {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown)
+  if (fm && /^title:\s*\S/m.test(fm[1])) return null
+  if (/^#\s+\S/m.test(fm ? markdown.slice(fm[0].length) : markdown)) return null
+  const line = `title: ${JSON.stringify(pageTitle(markdown, path))}`
+  return fm
+    ? `---\n${line}\n${markdown.slice(markdown.indexOf("\n") + 1)}`
+    : `---\n${line}\n---\n\n${markdown}`
+}
+
+/**
  * The book's reading order: the link targets, in order, of the list under
  * "## Contents" in its index.md (up to the next heading), as Quartz slugs, for
  * edition-integrations' explorerOrder. Each list item's first link counts:

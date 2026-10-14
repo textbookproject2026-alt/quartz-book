@@ -1012,3 +1012,14 @@ test("linkDois: each DOI form, punctuation kept outside, text unchanged, idempot
       '<meta name="citation_reference" content="citation_doi=10.1000/a#b">',
   )
 })
+
+test("withDerivedTitle: a page with no title and no H1 is titled from its file name, frontmatter only", async () => {
+  const { withDerivedTitle } = await import("../builder/lib.mjs")
+  assert.equal(
+    withDerivedTitle('---\nauthors:\n  - "A"\n#title: "x"\n---\n#### Test\n', "chapters/chapter-01.md"),
+    '---\ntitle: "Chapter 1"\nauthors:\n  - "A"\n#title: "x"\n---\n#### Test\n',
+  )
+  assert.equal(withDerivedTitle("Just text.\n", "chapters/chapter-04.md"), '---\ntitle: "Chapter 4"\n---\n\nJust text.\n')
+  assert.equal(withDerivedTitle("---\ntitle: Mine\n---\nx\n", "a.md"), null)
+  assert.equal(withDerivedTitle("# Heading\n\nx\n", "a.md"), null)
+})
