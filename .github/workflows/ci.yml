@@ -93,13 +93,30 @@ jobs:
           "https://github.com/$REPO.git" "$RUNNER_TEMP/live-book"
 
       - name: Build it
+        id: build
+        # A build that fails is judged in the next step: the book's or the builder's.
+        continue-on-error: true
         # With a Hypothes.is client, so the sidebar layout is still checked
         # (builder/prepare.mjs); books themselves have no public layer.
         env:
           TB_LAYOUT_ANNOTATIONS: public
         run: ./build-book.sh "$RUNNER_TEMP/live-book" --branch "${{ steps.book.outputs.branch }}" --out "$RUNNER_TEMP/live-book-site"
 
+      # One book's own text must never hold up the builder for every book (14 Oct:
+      # a publish froze `stable` until a fix). If the builder at `stable` can't
+      # build the book either, it's the book's content: a warning, and the checks
+      # below that need the build are skipped. If `stable` can, this builder broke
+      # it: red. The book's own site keeps its last build either way, and the other
+      # books' builds and deploys never wait on this one (reconcile.yml, fail-fast
+      # off, one concurrency group per book).
+      - name: A failed build, the builder's or the book's?
+        if: steps.build.outcome == 'failure'
+        run: >
+          test/judge-failed-build.sh "$RUNNER_TEMP/live-book" "${{ steps.book.outputs.slug }}"
+          --branch "${{ steps.book.outputs.branch }}" --out "$RUNNER_TEMP/live-book-site"
+
       - name: Check the build
+        if: steps.build.outcome == 'success'
         run: node test/check-live-book.mjs "$RUNNER_TEMP/live-book-site" "$RUNNER_TEMP/live-book" "${{ steps.book.outputs.slug }}"
 
       # The phone layout in real device emulation (Pixel 7 in Chromium, iPhone 13
@@ -107,9 +124,11 @@ jobs:
       # navigating through the menu, the annotation sidebar opened and closed.
       # It needs the network: the built pages load Hypothes.is from hypothes.is.
       - name: Install the emulated phones' browsers
+        if: steps.build.outcome == 'success'
         run: npx playwright-core install --with-deps chromium webkit
 
       - name: Phone layout (Pixel 7, iPhone 13)
+        if: steps.build.outcome == 'success'
         run: |
           node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8801 &
           sleep 1
@@ -118,6 +137,7 @@ jobs:
       # The reader's layout at a dozen widths at and around each switch point, in
       # Chromium and WebKit, and an Android Chrome emulation (test/layout-checks.mjs).
       - name: Layout checks (header, panels, scroll, reading)
+        if: steps.build.outcome == 'success'
         id: layout
         run: |
           node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8803 &
@@ -142,12 +162,14 @@ jobs:
           fi
 
       - name: The explorer and the folder page follow index.md's Contents
+        if: steps.build.outcome == 'success'
         run: |
           node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8802 &
           sleep 1
           node test/explorer-order.mjs http://127.0.0.1:8802/ "$RUNNER_TEMP/live-book"
 
       - name: Phone audit (batch 2b's seven checks, 360/390/412, light and dark)
+        if: steps.build.outcome == 'success'
         run: |
           node test/serve-static.mjs "$RUNNER_TEMP/live-book-site" 8804 &
           sleep 1

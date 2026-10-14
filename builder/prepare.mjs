@@ -48,6 +48,7 @@ import {
 } from "./lib.mjs"
 import { isAutomation } from "../automation/scripts/lib/credits.mjs"
 import { quartzUrl } from "../automation/scripts/backup-annotations.mjs"
+import { noteProblem } from "./problems.mjs"
 
 /** The book's declined items from the function (batch 2c); [] when it can't be asked. */
 async function fetchDeclined(revisionEndpoint) {
@@ -223,22 +224,29 @@ try {
   const info = parseCommitInfo(
     git(book, "log", "--no-merges", "-z", `--format=${COMMIT_INFO_FORMAT}`),
   )
-  const revisions = {}
-  for (const file of git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0")) {
-    if (!file.endsWith(".md")) continue
-    const follow = git(
-      book,
-      "log",
-      "--follow",
-      "--no-merges",
-      "-M",
-      "--name-status",
-      "-z",
-      "--format=%x1e%H",
-      "--",
-      file,
-    )
-    revisions[file] = revisionsOf(parseFollowLog(follow), info, automation, members)
+  // Not needed to serve the text: if it fails, the pages go without their History
+  // lists, and the build says so (problems.mjs).
+  let revisions = {}
+  try {
+    for (const file of git(book, "ls-files", "-z", "--", ...ALLOWLIST).split("\0")) {
+      if (!file.endsWith(".md")) continue
+      const follow = git(
+        book,
+        "log",
+        "--follow",
+        "--no-merges",
+        "-M",
+        "--name-status",
+        "-z",
+        "--format=%x1e%H",
+        "--",
+        file,
+      )
+      revisions[file] = revisionsOf(parseFollowLog(follow), info, automation, members)
+    }
+  } catch (err) {
+    revisions = {}
+    noteProblem(workDir, "history", `the pages' History lists weren't made (${err.message}).`)
   }
   writeFileSync(join(workDir, "revisions.json"), JSON.stringify(revisions) + "\n")
 
@@ -281,90 +289,97 @@ try {
             (f) => f.endsWith(".md") && !f.startsWith("community/") && !f.startsWith("assets/"),
           )
       : []
-  const historyFiles = [...new Set([...lsMd(liveRef), ...lsMd(draftsRef)])].sort()
-  const allInfo = parseCommitInfo(
-    git(
-      book,
-      "log",
-      "--no-merges",
-      "-z",
-      `--format=${COMMIT_INFO_FORMAT}`,
-      ...[liveRef, draftsRef].filter(Boolean),
-    ),
-  )
-  const follow = (range, file) =>
-    revisionsOf(
-      parseFollowLog(
-        git(
-          book,
-          "log",
-          "--follow",
-          "--no-merges",
-          "-M",
-          "--name-status",
-          "-z",
-          "--format=%x1e%H",
-          range,
-          "--",
-          file,
+  // The book's version history isn't needed to serve the text either: if it
+  // fails, the /history page says there is none yet, and the build says so.
+  let history = historyData({ files: {}, pages: {}, releases: [], declined: [] })
+  try {
+    const historyFiles = [...new Set([...lsMd(liveRef), ...lsMd(draftsRef)])].sort()
+    const allInfo = parseCommitInfo(
+      git(
+        book,
+        "log",
+        "--no-merges",
+        "-z",
+        `--format=${COMMIT_INFO_FORMAT}`,
+        ...[liveRef, draftsRef].filter(Boolean),
+      ),
+    )
+    const follow = (range, file) =>
+      revisionsOf(
+        parseFollowLog(
+          git(
+            book,
+            "log",
+            "--follow",
+            "--no-merges",
+            "-M",
+            "--name-status",
+            "-z",
+            "--format=%x1e%H",
+            range,
+            "--",
+            file,
+          ),
         ),
-      ),
-      allInfo,
-      automation,
-      members,
-    ).map((r) => ({ ...r, body: allInfo.get(r.sha)?.body ?? "" }))
-  const releases = git(
-    book,
-    "for-each-ref",
-    "--format=%(refname:short)%09%(creatordate:iso-strict)%09%(*objectname)%09%(objectname)",
-    "refs/tags/v*",
-  )
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [tag, date, peeled, own] = line.split("\t")
-      return { tag, date, commit: peeled || own }
-    })
-  const readAt = (ref, file) => {
-    try {
-      return git(book, "show", `${ref}:${file}`)
-    } catch {
-      return null
+        allInfo,
+        automation,
+        members,
+      ).map((r) => ({ ...r, body: allInfo.get(r.sha)?.body ?? "" }))
+    const releases = git(
+      book,
+      "for-each-ref",
+      "--format=%(refname:short)%09%(creatordate:iso-strict)%09%(*objectname)%09%(objectname)",
+      "refs/tags/v*",
+    )
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [tag, date, peeled, own] = line.split("\t")
+        return { tag, date, commit: peeled || own }
+      })
+    const readAt = (ref, file) => {
+      try {
+        return git(book, "show", `${ref}:${file}`)
+      } catch {
+        return null
+      }
     }
+    const indexFm = frontOf(readAt(liveRef ?? draftsRef ?? "HEAD", "index.md"))
+    const bookPeople = { creators: creatorsOf(indexFm), editors: editorsOf(indexFm) }
+    const historyFilesData = {}
+    const historyPages = {}
+    for (const file of historyFiles) {
+      const text = readAt(liveRef ?? "HEAD", file) ?? readAt(draftsRef, file) ?? ""
+      const fm = frontOf(text)
+      const creators = creatorsOf(fm)
+      const editors = editorsOf(fm)
+      historyPages[file] = {
+        url: quartzUrl(file, ""),
+        title: pageTitle(text, file),
+        people: {
+          creators: creators.length ? creators : bookPeople.creators,
+          editors: editors.length ? editors : bookPeople.editors,
+        },
+      }
+      historyFilesData[file] = {
+        published: liveRef ? follow(liveRef, file) : [],
+        drafts: liveRef && draftsRef ? follow(`${liveRef}..${draftsRef}`, file) : [],
+        releases: Object.fromEntries(
+          releases.map((r) => [
+            r.tag,
+            git(book, "log", "-1", "--format=%H", r.commit, "--", file) || null,
+          ]),
+        ),
+      }
+    }
+    // What the authors declined (batch 2c): the function's /api/history, read with the
+    // App; the build has no GitHub access of its own. Without an answer the history
+    // still builds, and the page's script asks again when it is opened.
+    const declined = facts.revisionEndpoint ? await fetchDeclined(facts.revisionEndpoint) : []
+    history = historyData({ files: historyFilesData, pages: historyPages, releases, declined })
+  } catch (err) {
+    noteProblem(workDir, "history", `the book's version history wasn't made (${err.message}).`)
   }
-  const indexFm = frontOf(readAt(liveRef ?? draftsRef ?? "HEAD", "index.md"))
-  const bookPeople = { creators: creatorsOf(indexFm), editors: editorsOf(indexFm) }
-  const historyFilesData = {}
-  const historyPages = {}
-  for (const file of historyFiles) {
-    const text = readAt(liveRef ?? "HEAD", file) ?? readAt(draftsRef, file) ?? ""
-    const fm = frontOf(text)
-    const creators = creatorsOf(fm)
-    const editors = editorsOf(fm)
-    historyPages[file] = {
-      url: quartzUrl(file, ""),
-      title: pageTitle(text, file),
-      people: {
-        creators: creators.length ? creators : bookPeople.creators,
-        editors: editors.length ? editors : bookPeople.editors,
-      },
-    }
-    historyFilesData[file] = {
-      published: liveRef ? follow(liveRef, file) : [],
-      drafts: liveRef && draftsRef ? follow(`${liveRef}..${draftsRef}`, file) : [],
-      releases: Object.fromEntries(
-        releases.map((r) => [
-          r.tag,
-          git(book, "log", "-1", "--format=%H", r.commit, "--", file) || null,
-        ]),
-      ),
-    }
-  }
-  // What the authors declined (batch 2c): the function's /api/history, read with the
-  // App; the build has no GitHub access of its own. Without an answer the history
-  // still builds, and the page's script asks again when it is opened.
-  const declined = facts.revisionEndpoint ? await fetchDeclined(facts.revisionEndpoint) : []
-  const history = historyData({ files: historyFilesData, pages: historyPages, releases, declined })
   writeFileSync(join(workDir, "history-data.json"), JSON.stringify(history) + "\n")
   // The marker's other_commit: the other branch's head, as fetched beside the build.
   const otherRef = branch === live ? draftsRef : branch === draftsBranch ? liveRef : null

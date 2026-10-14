@@ -139,8 +139,17 @@ check(
   },
 )
 
+// A download the book's own text stops (problems.mjs: Typst at a broken link, say)
+// is the book's problem, not the builder's: it's left out and reported, and the
+// builder's own export is proved on the fixture (test/build.test.mjs). Here it
+// must be named in the marker's problems, and nothing that wasn't made is linked.
+const problems = JSON.parse(read(".well-known/textbook.json")).problems ?? []
+for (const p of problems) console.log(`::warning title=${slug}: ${p.step}::${p.message}`)
+const explained = (ext) =>
+  problems.some((p) => p.step === "export" && p.message.includes(`.${ext} was not made`))
+
 check(
-  "the downloads: the chapter's PDF and EPUB and the book's PDF, EPUB and ODT, linked from the page",
+  "the downloads: the chapter's PDF and EPUB and the book's PDF, EPUB and ODT, linked from the page (or named in the marker's problems)",
   () => {
     const html = pageHtml()
     const data = JSON.parse(
@@ -148,24 +157,35 @@ check(
         "null",
     )
     assert.ok(data, "no tb-downloads in the page")
-    assert.deepEqual(Object.keys(data.chapter ?? {}).sort(), ["epub", "pdf"])
-    assert.deepEqual(Object.keys(data.book ?? {}).sort(), ["epub", "odt", "pdf"])
-    for (const url of [...Object.values(data.chapter), ...Object.values(data.book)]) {
+    for (const [files, want] of [
+      [data.chapter ?? {}, ["epub", "pdf"]],
+      [data.book ?? {}, ["epub", "odt", "pdf"]],
+    ])
+      for (const ext of want)
+        assert.ok(
+          files[ext] || explained(ext),
+          `no ${ext}, and the marker's problems don't say why`,
+        )
+    for (const url of [...Object.values(data.chapter ?? {}), ...Object.values(data.book ?? {})]) {
       assert.match(url, /^\/downloads\/[a-z0-9-]+-\d{4}-\d{2}-\d{2}\.(pdf|epub|odt)$/)
       const file = join(out, url.slice(1))
       assert.ok(existsSync(file), `${url} is linked but wasn't made`)
       assert.ok(statSync(file).size > 1000, `${url} is nearly empty`)
     }
-    assert.ok(
-      html.includes(
-        `<meta name="citation_pdf_url" content="https://${book.site.domain}${data.chapter.pdf}">`,
-      ),
-    )
-    const alias = data.book.pdf.replace(/-\d{4}-\d{2}-\d{2}(?=\.pdf$)/, "")
-    assert.ok(
-      read("_redirects").includes(`${alias} ${data.book.pdf} 302`),
-      "no dateless alias for the book's PDF",
-    )
+    if (data.chapter?.pdf)
+      assert.ok(
+        html.includes(
+          `<meta name="citation_pdf_url" content="https://${book.site.domain}${data.chapter.pdf}">`,
+        ),
+      )
+    else assert.doesNotMatch(html, /citation_pdf_url/)
+    if (data.book?.pdf) {
+      const alias = data.book.pdf.replace(/-\d{4}-\d{2}-\d{2}(?=\.pdf$)/, "")
+      assert.ok(
+        read("_redirects").includes(`${alias} ${data.book.pdf} 302`),
+        "no dateless alias for the book's PDF",
+      )
+    }
   },
 )
 
@@ -175,6 +195,8 @@ check(
     const data = JSON.parse(
       /<script type="application\/json" id="tb-downloads">(.*?)<\/script>/.exec(pageHtml())[1],
     )
+    // No PDF for this chapter (named in the problems, above): the fixture's checks the fonts.
+    if (!data.chapter?.pdf) return console.log("      (this chapter has no PDF; see the problems)")
     const pdf = readFileSync(join(out, data.chapter.pdf.slice(1)))
     // Font names, in the file and in its compressed streams.
     const names = new Set()

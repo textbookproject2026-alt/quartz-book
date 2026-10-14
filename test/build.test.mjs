@@ -220,6 +220,7 @@ test("the fixture on its live branch", async (t) => {
       "registry_digest",
       "builder_commit",
       "serves",
+      "problems",
     ])
     assert.deepEqual(m.serves, {
       paths: ["index.md", "chapters", "assets", "glossary.md", "community"],
@@ -487,3 +488,71 @@ test("uncommitted changes to published files are refused", () => {
   assert.equal(b.status, 2, b.log)
   assert.match(b.log, /uncommitted changes/)
 })
+
+// The downloads need pandoc and Typst (export-tools in CI; PANDOC/TYPST locally).
+const exportTools = ["PANDOC", "TYPST"].every(
+  (v) => spawnSync(process.env[v] || v.toLowerCase(), ["--version"]).status === 0,
+)
+
+test(
+  "the fixture's downloads are all made (a builder bug in the export fails here, not in a book)",
+  { skip: !exportTools && "no pandoc or Typst" },
+  () => {
+    const b = build(fixtureBook("design-fixture").dir, "main")
+    assert.equal(b.status, 0, b.log)
+    assert.deepEqual(JSON.parse(b.read(".well-known/textbook.json")).problems, [])
+    const data = JSON.parse(
+      /<script type="application\/json" id="tb-downloads">(.*?)<\/script>/.exec(
+        b.read("chapters/chapter-01.html"),
+      )[1],
+    )
+    assert.deepEqual(Object.keys(data.chapter).sort(), ["epub", "pdf"])
+    assert.deepEqual(Object.keys(data.book).sort(), ["epub", "odt", "pdf"])
+    for (const url of [...Object.values(data.chapter), ...Object.values(data.book)])
+      assert.ok(b.has(url.slice(1)), `${url} is linked but wasn't made`)
+  },
+)
+
+test(
+  "a chapter whose PDF can't be made: the site builds, that PDF isn't offered, the marker names it",
+  { skip: !exportTools && "no pandoc or Typst" },
+  () => {
+    const book = fixtureBook("design-fixture", (dir) => {
+      // A link to a heading the page doesn't have: Typst stops at the missing label.
+      const ch = join(dir, "chapters/chapter-01.md")
+      writeFileSync(ch, `${readFileSync(ch, "utf8")}\nSee [nowhere](#no-such-heading).\n`)
+      execFileSync("git", ["-C", dir, "add", "-A"])
+      execFileSync("git", [
+        "-C",
+        dir,
+        "-c",
+        "user.name=f",
+        "-c",
+        "user.email=f@example.invalid",
+        "commit",
+        "-qm",
+        "broken link",
+      ])
+    })
+    const b = build(book.dir, "main")
+    assert.equal(b.status, 0, b.log)
+    const data = JSON.parse(
+      /<script type="application\/json" id="tb-downloads">(.*?)<\/script>/.exec(
+        b.read("chapters/chapter-01.html"),
+      )[1],
+    )
+    // The PDFs that failed (the chapter's and the book's, which contains it) aren't
+    // linked; everything else still is, and every link is a file.
+    assert.deepEqual(Object.keys(data.chapter).sort(), ["epub"])
+    assert.deepEqual(Object.keys(data.book).sort(), ["epub", "odt"])
+    for (const url of [...Object.values(data.chapter), ...Object.values(data.book)])
+      assert.ok(b.has(url.slice(1)), `${url} is linked but wasn't made`)
+    assert.doesNotMatch(b.read("chapters/chapter-01.html"), /citation_pdf_url/)
+    const { problems } = JSON.parse(b.read(".well-known/textbook.json"))
+    assert.equal(problems.length, 2, JSON.stringify(problems))
+    for (const p of problems) {
+      assert.equal(p.step, "export")
+      assert.match(p.message, /\.pdf was not made, so it isn't offered: .*no-such-heading/)
+    }
+  },
+)

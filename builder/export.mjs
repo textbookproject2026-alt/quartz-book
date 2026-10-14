@@ -53,6 +53,7 @@ import {
   setPlatform,
 } from "./lib.mjs"
 import { formatAll } from "./citations.mjs"
+import { noteProblem } from "./problems.mjs"
 
 const [workDir, outDir] = process.argv.slice(2)
 const PANDOC = process.env.PANDOC || "pandoc"
@@ -95,6 +96,7 @@ try {
   main()
 } catch (err) {
   warn(err.message)
+  noteProblem(workDir, "export", `the downloads stopped early: ${err.message}`)
 }
 console.log(
   `export: ${((Date.now() - started) / 1000).toFixed(1)}s, ${warnings.length ? `${warnings.length} warning(s)` : "no warnings"}`,
@@ -259,13 +261,14 @@ function main() {
       made.set(key, { ...made.get(key), [ext]: `/${EXPORT_DIR}/${name}` })
     } catch (err) {
       rmSync(out, { force: true })
-      warn(
-        `${name} was not made: ${String(err.stderr || err.message)
-          .trim()
-          .split("\n")
-          .slice(-3)
-          .join(" ")}`,
-      )
+      const why = String(err.stderr || err.message)
+        .trim()
+        .split("\n")
+        .slice(-3)
+        .join(" ")
+      warn(`${name} was not made: ${why}`)
+      // Left out, and so not linked: no dead link. Reported, never fatal.
+      noteProblem(workDir, "export", `${name} was not made, so it isn't offered: ${why}`)
     }
   }
   const pdf = (json, toc) => (out) => {

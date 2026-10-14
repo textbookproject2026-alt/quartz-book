@@ -48,6 +48,7 @@ import {
   isAutomation,
   pageContributors,
 } from "../automation/scripts/lib/credits.mjs"
+import { noteProblem } from "./problems.mjs"
 
 const [workDir, outDir] = process.argv.slice(2)
 const facts = JSON.parse(readFileSync(join(workDir, "facts.json"), "utf8"))
@@ -115,8 +116,10 @@ const readOptional = (rel, parse) => {
   try {
     return parse(readFileSync(file, "utf8"))
   } catch (err) {
-    console.warn(
-      `::warning title=credits::${rel} can't be read (${err.message}); left out of this build.`,
+    noteProblem(
+      workDir,
+      "credits",
+      `${rel} can't be read (${err.message}); left out of this build.`,
     )
     return null
   }

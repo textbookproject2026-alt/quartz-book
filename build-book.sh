@@ -62,7 +62,20 @@ for f in quartz node_modules .quartz package.json package-lock.json tsconfig.jso
 done
 mv "$WORK/quartz.config.yaml" "$RUN/quartz.config.yaml"
 rm -rf "$OUT"
-(cd "$RUN" && npx quartz build -d "$WORK/content" -o "$OUT")
+# The pages' preview images (og-image) aren't needed to serve the text: if the
+# build fails with them, it is tried once without, and the build says so.
+if ! (cd "$RUN" && npx quartz build -d "$WORK/content" -o "$OUT"); then
+  echo "build-book: the build failed; trying again without the pages' preview images (og-image)." >&2
+  node -e '
+    const fs = require("fs"), YAML = require(process.argv[2])
+    const c = YAML.parse(fs.readFileSync(process.argv[1], "utf8"))
+    for (const p of c.plugins) if (/\/og-image$/.test(p.source)) p.enabled = false
+    fs.writeFileSync(process.argv[1], YAML.stringify(c))
+  ' "$RUN/quartz.config.yaml" "$BUILDER/node_modules/yaml"
+  rm -rf "$OUT"
+  (cd "$RUN" && npx quartz build -d "$WORK/content" -o "$OUT")
+  node "$BUILDER/builder/problems.mjs" --note "$WORK" og-image "the build failed with the pages' preview images, so this one has none."
+fi
 
 # 3. The builder's additions, and the check that nothing else was published.
 node "$BUILDER/builder/finish.mjs" "$WORK" "$OUT"
@@ -70,5 +83,7 @@ node "$BUILDER/builder/finish.mjs" "$WORK" "$OUT"
 # 4. The downloads (PDF, EPUB, ODT). Never fails the build: a file that can't be
 #    made is left out with a warning. TB_EXPORTS=off skips them. Then the
 #    allowlist check again, over what they added.
-node "$BUILDER/builder/export.mjs" "$WORK" "$OUT" || echo "::warning title=export::the exports stopped early; the site publishes without them."
+node "$BUILDER/builder/export.mjs" "$WORK" "$OUT" \
+  || node "$BUILDER/builder/problems.mjs" --note "$WORK" export "the downloads stopped early; the site publishes without them."
+node "$BUILDER/builder/problems.mjs" "$WORK" "$OUT"
 node "$BUILDER/builder/check-output.mjs" "$OUT"
