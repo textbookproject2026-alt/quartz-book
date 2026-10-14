@@ -985,3 +985,30 @@ test("tableLayout: text tables of up to four columns stack with labels; wide or 
     />the author <span class="tb-nowrap">site<svg/,
   )
 })
+
+test("linkDois: each DOI form, punctuation kept outside, text unchanged, idempotent; referenceTags reads only references sections", async () => {
+  const { linkDois, referenceTags } = await import("../builder/lib.mjs")
+  const page = readFileSync(new URL("../fixtures/doi/page.html", import.meta.url), "utf8")
+  const out = linkDois(page)
+  const text = (h) => h.replace(/<[^>]+>/g, "")
+  assert.equal(text(out), text(page))
+  assert.equal(linkDois(out), out)
+  const hrefs = [...out.matchAll(/href="([^"]*)"/g)].map((m) => m[1])
+  assert.deepEqual(hrefs, [
+    "https://doi.org/10.1000/xyz123",
+    "https://doi.org/10.1037/0003-066X.59.1.29",
+    "https://doi.org/10.1016/S0140-6736(20)30183-5",
+    "https://doi.org/10.5555/12345678",
+    "https://dx.doi.org/10.1234/own",
+    "https://doi.org/10.1000/ref",
+    "https://doi.org/10.1000/a%23b",
+  ])
+  assert.match(out, /\(<a [^>]*>10\.1016\/S0140-6736\(20\)30183-5<svg[^]*?<\/a>\)\./)
+  assert.match(out, /<code>10\.9999\/code<\/code>/)
+  assert.match(out, /<title>10\.1000\/title<\/title>/)
+  assert.equal(
+    referenceTags(out),
+    '<meta name="citation_reference" content="citation_doi=10.1000/ref">' +
+      '<meta name="citation_reference" content="citation_doi=10.1000/a#b">',
+  )
+})

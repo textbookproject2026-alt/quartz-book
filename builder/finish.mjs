@@ -38,6 +38,8 @@ import {
   strayMessage,
   walkFiles,
   setPlatform,
+  linkDois,
+  referenceTags,
   tableLayout,
 } from "./lib.mjs"
 import { citeData } from "./citations.mjs"
@@ -158,6 +160,8 @@ for (const file of walkFiles(outDir)) {
   let html = readFileSync(file, "utf8")
   html = addCanonical(html, facts.domain, url)
   html = orderFolderListing(html, slug, facts.contentsOrder ?? [])
+  // DOIs as doi.org links (lib.mjs, linkDois), before the link icons are kept with their words.
+  html = linkDois(html)
   // Tables and external links that read on a phone (lib.mjs, tableLayout).
   html = tableLayout(html)
   const meta = metaBySlug.get(slug)
@@ -174,6 +178,7 @@ for (const file of walkFiles(outDir)) {
     html = addToHead(
       html,
       headTags(meta, { contributors }) +
+        referenceTags(html) +
         `<script type="application/json" id="tb-cite">${scriptJson(cite)}</script>`,
       url,
     )
