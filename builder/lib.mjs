@@ -1640,7 +1640,8 @@ export function revisionAuthor(
   const person = (n, e) => NOREPLY.exec(e)?.[1] ?? n
   // The author site says who acted ("Sent by Name (member m-…)" or "Sent by @login"):
   // the member's name as the registry has it now; never the platform's account or a test identity.
-  const member = /^Sent by (.+?) \(member (m-[a-z0-9][a-z0-9-]{0,39})\) via the author site\.$/m.exec(body)
+  const member =
+    /^Sent by (.+?) \(member (m-[a-z0-9][a-z0-9-]{0,39})\) via the author site\.$/m.exec(body)
   const memberName = member && (members.get(member[2]) || member[1])
   if (memberName && !isBot(memberName, "")) return { who: memberName }
   const site = /^Sent by @([A-Za-z0-9-]{1,39}) via the author site\.$/m.exec(body)?.[1]
