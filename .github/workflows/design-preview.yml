@@ -155,11 +155,35 @@ jobs:
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Build, as a noindex preview
+        id: build
+        # A failed build is judged next: the book's own content, or this builder.
+        continue-on-error: true
         env:
           TB_EXPORTS: ${{ needs.plan.outputs.exports == 'true' && 'on' || 'off' }}
         run: ./build-book.sh "$RUNNER_TEMP/book" --branch "$BRANCH" --preview --out "$RUNNER_TEMP/site"
 
+      # One book's own content never holds up a builder pull request (14 Oct): if
+      # the builder at stable can't build it either, this book gets no preview,
+      # says why, and the comment counts it as excused; the other books' previews
+      # deploy as usual. A failure stable doesn't have stays red.
+      - name: A failed build, the builder's or the book's?
+        if: steps.build.outcome == 'failure'
+        env:
+          TB_EXPORTS: "off"
+        run: |
+          test/judge-failed-build.sh "$RUNNER_TEMP/book" "$SLUG" --branch "$BRANCH" --preview --out "$RUNNER_TEMP/site"
+          mkdir -p "$RUNNER_TEMP/excused" && echo "$SLUG" > "$RUNNER_TEMP/excused/$SLUG"
+
+      - name: Say the preview is excused
+        if: steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: excused-${{ matrix.target.slug }}
+          path: ${{ runner.temp }}/excused
+          retention-days: 3
+
       - name: Check it is this builder's preview of that commit
+        if: steps.build.outcome == 'success'
         env:
           COMMIT: ${{ steps.book.outputs.commit }}
         run: |
@@ -174,6 +198,7 @@ jobs:
             || { echo "::error::the preview has no noindex _headers."; exit 1; }
 
       - name: Keep the site for the deploy job
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: preview-${{ matrix.target.slug }}
@@ -184,7 +209,8 @@ jobs:
 
   deploy:
     needs: [plan, build]
-    if: needs.plan.outputs.deploy == 'true'
+    # Each book on its own: one book's failed build never stops the others' previews.
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.deploy == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -221,16 +247,21 @@ jobs:
           done
           exit $missing
 
+      # None when this book's build failed (its build job says why): nothing to deploy.
       - uses: actions/download-artifact@v8
+        id: site
+        continue-on-error: true
         with:
           name: preview-${{ matrix.target.slug }}
           path: site
 
-      - uses: actions/setup-node@v6
+      - if: steps.site.outcome == 'success'
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
       - name: Upload to the book's Pages project, on the preview branch
+        if: steps.site.outcome == 'success'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -244,6 +275,7 @@ jobs:
             --commit-dirty=true
 
       - name: Check Pages serves it, noindex
+        if: steps.site.outcome == 'success'
         run: |
           for i in $(seq 1 24); do
             if curl -fsS -H 'cache-control: no-cache' "${URL}.well-known/textbook.json?deploy=$GITHUB_RUN_ID-$i" -o served.json \
@@ -278,13 +310,21 @@ jobs:
         with:
           node-version-file: .node-version
 
+      # The books whose own content stopped their build (build job): no preview, not a failure.
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: excused-*
+          path: excused
+          merge-multiple: true
+
       # One comment per pull request, updated on each run.
       - name: Comment with a link per book
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           status=0
-          node builder/preview.mjs comment "$PR" "$HEAD" || status=$?
+          EXCUSED="$(ls excused 2>/dev/null | tr '\n' ' ')" node builder/preview.mjs comment "$PR" "$HEAD" || status=$?
           body="$RUNNER_TEMP/preview-comment.md"
           [ -s "$body" ] || exit 1
           id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \

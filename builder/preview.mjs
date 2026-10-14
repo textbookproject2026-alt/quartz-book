@@ -10,7 +10,7 @@
 //       Reads the marker each preview serves, and writes the pull request's
 //       comment to $RUNNER_TEMP/preview-comment.md (the system temp dir
 //       outside Actions). Exits 1 when a preview doesn't serve this builder
-//       commit, after writing the comment.
+//       commit, after writing the comment, unless EXCUSED names that book.
 //
 // Environment: REGISTRY_FILE, a local registry.json instead of the registry's
 // main (tests); SERVED_FILE, a JSON list of markers instead of fetching them
@@ -59,8 +59,17 @@ async function comment([pr, head]) {
   const body = previewComment({ pr, head, targets, served })
   writeFileSync(join(process.env.RUNNER_TEMP ?? tmpdir(), "preview-comment.md"), body)
   console.log(body)
+  // EXCUSED: the books whose own content stops their build with stable too
+  // (test/judge-failed-build.sh): no preview, said in the build job, not a failure.
+  const excused = (process.env.EXCUSED ?? "").split(/\s+/).filter(Boolean)
+  for (const slug of excused)
+    console.log(
+      `::warning::${slug}: no preview; its own content stops its build (see its build job).`,
+    )
   const missing = targets.filter(
-    (t, i) => served[i]?.slug !== t.slug || served[i]?.builder_commit !== head,
+    (t, i) =>
+      !excused.includes(t.slug) &&
+      (served[i]?.slug !== t.slug || served[i]?.builder_commit !== head),
   )
   if (missing.length) {
     console.error(`preview: no preview of ${missing.map((t) => t.slug).join(", ")} at this commit.`)
