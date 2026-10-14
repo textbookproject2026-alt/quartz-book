@@ -552,7 +552,10 @@ test(
     assert.equal(problems.length, 2, JSON.stringify(problems))
     for (const p of problems) {
       assert.equal(p.step, "export")
-      assert.match(p.message, /\.pdf was not made, so it isn't offered: .*no-such-heading/)
+      assert.match(
+        p.message,
+        /\.pdf was not made, so it isn't offered: error: label `<no-such-heading>` does not exist/,
+      )
     }
   },
 )
