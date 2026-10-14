@@ -23,6 +23,7 @@ import {
   REGISTRY_URL,
   bookOptions,
   bookContents,
+  bookType,
   contentsOrder,
   findBook,
   howToCommentClash,
@@ -134,6 +135,13 @@ try {
     }
   }
   const order = contentsOrder(indexText)
+  // The header badge and the catalog: index.md's resource_type, else the registry's type.
+  const indexFm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(indexText)?.[1]
+  let resourceType
+  try {
+    resourceType = indexFm && YAML.parse(indexFm)?.resource_type
+  } catch {} // frontmatter that doesn't parse: the registry's type
+  opts.type = bookType(resourceType, opts.type)
   // The commit, and each published file's blob, the pages are built from.
   const bookCommit = git(book, "rev-parse", "HEAD")
   const sourceBlobs = parseLsTree(git(book, "ls-tree", "-r", "-z", "HEAD", "--", ...ALLOWLIST))

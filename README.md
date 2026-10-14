@@ -309,7 +309,7 @@ the most specific place that has it:
 | created / published | `created:` / `published:`, else the file's first commit / the commit being built |
 | summary | `summary:` or `description:`, else (front page) the registry's summary, else the first paragraph; under 300 characters |
 | keywords | `keywords:` and the tags, without `concept` |
-| type | `resource_type:` (book, chapter, paper, report, article, concept), else registry `type` on the front page, `concept` on concept pages, `chapter` elsewhere |
+| type | a page's `resource_type:` (book, chapter, paper, report, article, concept), else `concept` on concept pages, `chapter` elsewhere. The book's (front page, header badge, catalog `metadata.type`): index.md's `resource_type:` if it is book, paper, report or article (the author site's Settings › "This is a…"), else registry `type`, else book |
 | lang, doi | `lang:` / `doi:`, else registry `lang` (else `en`) / `doi` (emitted only when set) |
 | licence | registry `licence` (else CC-BY-SA-4.0), with its URL; always open access |
 
