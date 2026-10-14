@@ -11,6 +11,7 @@ import {
   GIT_LOG_FORMAT,
   authorsOf,
   bookMetadata,
+  bookType,
   buildCatalog,
   cslItem,
   cslName,
@@ -724,4 +725,21 @@ test("the exports' Contributors page: names only, or nothing", () => {
   assert.equal(blocks[1].t, "Header")
   assert.match(JSON.stringify(blocks[2]), /"With"/)
   assert.deepEqual(contributorsBackMatter([]), [])
+})
+
+test("book type: index.md's book-level resource_type, else the registry's type, else book", () => {
+  assert.equal(bookType("paper", "report"), "paper")
+  assert.equal(bookType(undefined, "report"), "report")
+  assert.equal(bookType("chapter", "article"), "article")
+  assert.equal(bookType("poem", undefined), "book")
+  assert.equal(bookType(undefined, undefined), "book")
+  const index = { slug: "index", frontmatter: { resource_type: "paper" }, markdown: "" }
+  assert.equal(bookMetadata({ ...bookFacts, type: "report" }, index).type, "paper")
+  assert.equal(
+    bookMetadata(
+      { ...bookFacts, type: "report" },
+      { ...index, frontmatter: { resource_type: "concept" } },
+    ).type,
+    "report",
+  )
 })

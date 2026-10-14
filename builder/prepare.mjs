@@ -23,6 +23,7 @@ import {
   REGISTRY_URL,
   bookOptions,
   bookContents,
+  bookType,
   contentsOrder,
   findBook,
   howToCommentClash,
@@ -65,6 +66,16 @@ async function fetchDeclined(revisionEndpoint) {
 const BUILDER = resolve(import.meta.dirname, "..")
 const [bookDir, branch, workDir, registryFile] = process.argv.slice(2)
 
+// A page's frontmatter, parsed; {} when it has none or it doesn't parse.
+const frontOf = (text) => {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text ?? "")
+  try {
+    const fm = m ? YAML.parse(m[1]) : {}
+    return fm && typeof fm === "object" && !Array.isArray(fm) ? fm : {}
+  } catch {
+    return {}
+  }
+}
 const git = (dir, ...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim()
 
 async function readRegistry() {
@@ -134,6 +145,8 @@ try {
     }
   }
   const order = contentsOrder(indexText)
+  // The header badge and the catalog: index.md's resource_type, else the registry's type.
+  opts.type = bookType(frontOf(indexText).resource_type, opts.type)
   // The commit, and each published file's blob, the pages are built from.
   const bookCommit = git(book, "rev-parse", "HEAD")
   const sourceBlobs = parseLsTree(git(book, "ls-tree", "-r", "-z", "HEAD", "--", ...ALLOWLIST))
@@ -303,15 +316,6 @@ try {
       return git(book, "show", `${ref}:${file}`)
     } catch {
       return null
-    }
-  }
-  const frontOf = (text) => {
-    const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text ?? "")
-    try {
-      const fm = m ? YAML.parse(m[1]) : {}
-      return fm && typeof fm === "object" && !Array.isArray(fm) ? fm : {}
-    } catch {
-      return {}
     }
   }
   const indexFm = frontOf(readAt(liveRef ?? draftsRef ?? "HEAD", "index.md"))

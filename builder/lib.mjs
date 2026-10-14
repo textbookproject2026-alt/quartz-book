@@ -1085,6 +1085,15 @@ export function buildCatalog({ facts, pages, commits = [], credits = null }) {
 
 /** The resource types a page can be (frontmatter `resource_type:`). */
 export const RESOURCE_TYPES = ["book", "chapter", "paper", "report", "article", "concept"]
+/** The ones a whole book can be (the author site's "This is a…" choice). */
+export const BOOK_TYPES = ["book", "paper", "report", "article"]
+
+/**
+ * What the book is, for every label (header badge, catalog, metadata): index.md's
+ * `resource_type:` when it's a book-level type, else the registry's `type`, else "book".
+ */
+export const bookType = (resourceType, registryType) =>
+  [resourceType, registryType].find((t) => BOOK_TYPES.includes(t)) ?? "book"
 export const PUBLISHER = "Confused for Now"
 export const DEFAULT_LICENCE = "CC-BY-SA-4.0"
 export const SUMMARY_MAX = 300
@@ -1166,7 +1175,7 @@ export function bookMetadata(facts, index) {
   const licence = facts.licence || DEFAULT_LICENCE
   const doi = String(fm.doi ?? facts.doi ?? "").trim()
   return {
-    type: RESOURCE_TYPES.includes(fm.resource_type) ? fm.resource_type : facts.type || "book",
+    type: bookType(fm.resource_type, facts.type),
     title: title || facts.title,
     // An edited volume (editors, no book-level authors) is cited by its editors;
     // otherwise index.md's authors, else the registry's maintainer.
