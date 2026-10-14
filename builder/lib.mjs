@@ -1392,6 +1392,108 @@ export function addToHead(html, extra, url) {
   return html.replace("</head>", `${extra}</head>`)
 }
 
+// --- Open citations: DOIs linked at build time (fixes 13 Oct, item 9) ---
+
+const EXTERNAL_ICON =
+  '<svg aria-hidden="true" class="external-icon" style="max-width:0.8em;max-height:0.8em;" viewBox="0 0 512 512"><path d="M320 0H288V64h32 82.7L201.4 265.4 178.7 288 224 333.3l22.6-22.6L448 109.3V192v32h64V192 32 0H480 320zM32 32H0V64 480v32H32 456h32V480 352 320H424v32 96H64V96h96 32V32H160 32z"></path></svg>'
+// A doi.org / dx.doi.org URL, "doi:10.…", or a bare "10.…/…" not inside a word or path.
+// ponytail: a DOI stops at whitespace, <, >, " or & (old SICI DOIs with <> or & are cut there).
+const DOI_IN_TEXT =
+  /(?:\b(?:https?:\/\/)?(?:dx\.)?doi\.org\/|\bdoi:\s?|(?<![\w/.:-]))(10\.\d{4,9}\/[^\s<>"&]+)/gi
+const DOI_URL = /^https?:\/\/(?:dx\.)?doi\.org\/(10\.\d{4,9}\/.+)$/i
+// Text inside these is never linked: links, code, scripts, icons.
+const NO_LINK = /^<(\/?)(a|code|pre|kbd|samp|script|style|textarea|svg)\b/i
+const doiHref = (doi) => `https://doi.org/${doi.replace(/[#?%]/g, encodeURIComponent)}`
+
+/** A matched DOI less its trailing punctuation and any unbalanced closing bracket. */
+function trimDoi(doi) {
+  for (;;) {
+    const last = doi.at(-1)
+    const close = { ")": "(", "]": "[" }[last]
+    if (/[.,;:!?'’”]/.test(last)) doi = doi.slice(0, -1)
+    else if (close && doi.split(last).length > doi.split(close).length) doi = doi.slice(0, -1)
+    else return doi
+  }
+}
+
+/**
+ * Every DOI in the page's text as a https://doi.org/ link, its visible text as
+ * written: bare DOIs, "doi:10.…" and doi.org / dx.doi.org URLs. A DOI already
+ * in a link or in code is left alone, except that an autolinked DOI URL (link
+ * text = its href) points at https://doi.org/. No network lookups; only HTML
+ * is added around the text, so the words (and Hypothes.is anchors, paragraph
+ * numbers) stay the same. Only the page's text (its <article>s) is read.
+ */
+export const linkDois = (html) => html.replace(/<article\b[\s\S]*?<\/article>/g, linkDoisIn)
+
+function linkDoisIn(html) {
+  const parts = html.split(/(<!--[\s\S]*?-->|<[^>]*>)/)
+  let skip = 0
+  let link = null // the open <a>: its part index, its DOI href, its text so far
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (i % 2) {
+      const tag = NO_LINK.exec(part)
+      if (!tag || part.endsWith("/>")) continue
+      const name = tag[2].toLowerCase()
+      if (!tag[1]) {
+        skip++
+        if (name === "a") {
+          const href = /\shref="([^"]*)"/.exec(part)?.[1] ?? ""
+          link = DOI_URL.test(href) ? { i, href, text: "" } : null
+        }
+      } else {
+        skip = Math.max(0, skip - 1)
+        if (name === "a" && link) {
+          if (link.text.trim() === link.href)
+            parts[link.i] = parts[link.i].replace(
+              `href="${link.href}"`,
+              `href="${doiHref(DOI_URL.exec(link.href)[1])}"`,
+            )
+          link = null
+        }
+      }
+      continue
+    }
+    if (link) link.text += part
+    if (skip || !part.includes("10.")) continue
+    parts[i] = part.replace(DOI_IN_TEXT, (whole, doi) => {
+      const kept = trimDoi(doi)
+      const text = whole.slice(0, whole.length - doi.length + kept.length)
+      return `<a href="${doiHref(kept)}" class="external external-link">${text}${EXTERNAL_ICON}</a>${doi.slice(kept.length)}`
+    })
+  }
+  return parts.join("")
+}
+
+/**
+ * The DOIs linked from the page's references sections (a heading by
+ * REFERENCE_HEADING, up to the next heading of the same or higher rank), in
+ * order, once each: one citation_reference meta tag each, for indexers.
+ */
+export function referenceTags(html) {
+  const dois = []
+  const heads = [...html.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/g)]
+  heads.forEach((h, k) => {
+    const text = h[2]
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+    if (!REFERENCE_HEADING.test(text)) return
+    const end = heads.slice(k + 1).find((n) => Number(n[1]) <= Number(h[1]))
+    const stop = end ? end.index : html.indexOf("</article>", h.index)
+    const section = html.slice(h.index + h[0].length, stop < 0 ? html.length : stop)
+    for (const m of section.matchAll(/href="https?:\/\/(?:dx\.)?doi\.org\/([^"]+)"/gi)) {
+      const doi = decodeURIComponent(m[1].replace(/&amp;/g, "&"))
+      if (!dois.includes(doi)) dois.push(doi)
+    }
+  })
+  return dois
+    .map((d) => `<meta name="citation_reference" content="citation_doi=${escAttr(d)}">`)
+    .join("")
+}
+
 // --- Citations: CSL-JSON from the metadata (builder/citations.mjs formats it) ---
 
 /** "Brandon Sommer" -> { family: "Sommer", given: "Brandon" }; one word stays a literal (an organisation). */

@@ -367,6 +367,55 @@ test("the fixture on its live branch", async (t) => {
   })
 })
 
+test("DOIs become doi.org links at build time; reference-list DOIs get citation_reference tags", () => {
+  const book = fixtureBook("design-fixture", (dir) => {
+    cpSync(join(ROOT, "fixtures/doi/chapter-dois.md"), join(dir, "chapters/chapter-dois.md"))
+    const git = (...a) => execFileSync("git", ["-C", dir, ...a])
+    git("add", "-A")
+    git("-c", "user.name=f", "-c", "user.email=f@example.invalid", "commit", "-q", "-m", "dois")
+  })
+  const b = build(book.dir, "main")
+  assert.equal(b.status, 0, b.log)
+  const html = b.read("chapters/chapter-dois.html")
+  const article = html.slice(html.indexOf("<article"), html.indexOf("</article>"))
+  // href -> visible text, for every link in the page's text.
+  const links = [...article.matchAll(/<a href="([^"]*)"[^>]*>([^]*?)<\/a>/g)].map((m) => [
+    m[1],
+    m[2].replace(/<[^>]+>/g, ""),
+  ])
+  const linkTo = (doi, text) =>
+    assert.ok(
+      links.some(([h, t]) => h === `https://doi.org/${doi}` && t === text),
+      `${doi} as "${text}"`,
+    )
+  linkTo("10.1000/xyz123", "10.1000/xyz123")
+  linkTo("10.1037/0003-066X.59.1.29", "doi:10.1037/0003-066X.59.1.29")
+  linkTo("10.1016/S0140-6736(20)30183-5", "https://doi.org/10.1016/S0140-6736(20)30183-5")
+  linkTo("10.5555/12345678", "https://dx.doi.org/10.5555/12345678")
+  linkTo("10.1234/linked", "the paper")
+  linkTo("10.1000/ref-bare", "10.1000/ref-bare")
+  linkTo("10.1000/ref.prefixed", "doi:10.1000/ref.prefixed")
+  linkTo("10.1000/after-refs", "10.1000/after-refs")
+  // Trailing punctuation stays outside; code is never touched; links aren't nested.
+  assert.match(article, /29<svg[^]*?<\/svg>(<\/span>)?<\/a>\./)
+  assert.match(article, /<code[^>]*>10\.9999\/in-code<\/code>/)
+  assert.doesNotMatch(article, /href="https:\/\/doi\.org\/10\.9999/)
+  assert.doesNotMatch(article, /<a [^>]*>[^<]*<a /)
+  assert.doesNotMatch(article, /href="https?:\/\/dx\.doi/)
+  // The visible text is as written.
+  for (const t of ["doi:10.1037/0003-066X.59.1.29", "(https://dx.doi.org/10.5555/12345678)"])
+    assert.ok(article.replace(/<[^>]+>/g, "").includes(t), t)
+  const refs = [...html.matchAll(/<meta name="citation_reference" content="([^"]*)">/g)].map(
+    (m) => m[1],
+  )
+  assert.deepEqual(refs, [
+    "citation_doi=10.1000/ref-bare",
+    "citation_doi=10.1000/ref.prefixed",
+    "citation_doi=10.1000/ref-url",
+    "citation_doi=10.1000/ref-linked",
+  ])
+})
+
 test("a design preview builds the live branch as it is, but noindex (§4b)", () => {
   const book = fixtureBook("design-fixture")
   const live = build(book.dir, "main")
