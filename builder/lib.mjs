@@ -1863,7 +1863,11 @@ export function preprocessMarkdown(markdown, ctx) {
     // A heading on this page ([[#…]]) is just its text in an export.
     const found = page.trim() ? ctx.resolve(page) : null
     // A block id (#^id) is Quartz's anchor as written; a heading's is slugged.
-    const frag = heading ? (heading.startsWith("^") ? `#${heading}` : `#${headingAnchor(heading)}`) : ""
+    const frag = heading
+      ? heading.startsWith("^")
+        ? `#${heading}`
+        : `#${headingAnchor(heading)}`
+      : ""
     return found ? `[${text}](${found.url}${frag})` : text
   }
 
