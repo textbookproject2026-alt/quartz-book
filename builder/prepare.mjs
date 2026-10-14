@@ -207,6 +207,12 @@ try {
       "the book checkout is shallow, so page histories would be cut short. Fetch the whole history (no --depth).",
     )
   const automation = isAutomation(platformPeopleOf(registry))
+  // The author site's members, id -> current name (registry books[].members).
+  const members = new Map(
+    (Array.isArray(entry.members) ? entry.members : [])
+      .filter((m) => m?.id && m?.name)
+      .map((m) => [m.id, m.name]),
+  )
   const info = parseCommitInfo(
     git(book, "log", "--no-merges", "-z", `--format=${COMMIT_INFO_FORMAT}`),
   )
@@ -225,7 +231,7 @@ try {
       "--",
       file,
     )
-    revisions[file] = revisionsOf(parseFollowLog(follow), info, automation)
+    revisions[file] = revisionsOf(parseFollowLog(follow), info, automation, members)
   }
   writeFileSync(join(workDir, "revisions.json"), JSON.stringify(revisions) + "\n")
 
@@ -298,6 +304,7 @@ try {
       ),
       allInfo,
       automation,
+      members,
     ).map((r) => ({ ...r, body: allInfo.get(r.sha)?.body ?? "" }))
   const releases = git(
     book,

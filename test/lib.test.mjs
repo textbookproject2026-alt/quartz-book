@@ -446,7 +446,7 @@ test("pageTitle: front matter title, else the first heading, else the file name"
     "Chapter 2: Methods",
   )
   assert.equal(pageTitle("---\n#title: x\n---\n\n# Chapter 1\n", "c.md"), "Chapter 1")
-  assert.equal(pageTitle("Just text.\n", "chapters/chapter-04.md"), "chapter-04")
+  assert.equal(pageTitle("Just text.\n", "chapters/chapter-04.md"), "Chapter 4")
 })
 
 test("a book's own how-to-comment clashes with the builder's page", () => {
