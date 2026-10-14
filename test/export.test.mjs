@@ -313,3 +313,12 @@ test("fonts in each format: Typst's headings and title in the ui font, EPUB's @f
   )
   assert.equal(odtStyles(xml, { text: null, ui: null, mono: null }), xml)
 })
+
+test("block ids: the marker goes, a link to one on the page is its text, one on another page keeps #^id", () => {
+  const md =
+    "As argued ([Bhaskar, 1975](#^ref-bhaskar-1975)), see [[chapter-01#^b2|there]].[^1]\n\nBhaskar, R. (1975). *A realist theory of science*. ^ref-bhaskar-1975\n\n[^1]: Note."
+  assert.equal(
+    preprocessMarkdown(md, ctx("chapters/one.md")),
+    "As argued (Bhaskar, 1975), see [there](https://book.example.org/chapters/chapter-01#^b2).[^1]\n\nBhaskar, R. (1975). *A realist theory of science*.\n\n[^1]: Note.",
+  )
+})
