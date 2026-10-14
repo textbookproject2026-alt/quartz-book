@@ -104,6 +104,7 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
     sourceBlobs: {},
     authors: "Platform",
     licence: "CC-BY-SA-4.0",
+    privacyUrl: "https://portal.example.invalid/privacy",
     // The fixture registry has no analytics: no statistics. A book unless it says otherwise.
     statsUrl: "",
     statsHost: "",
