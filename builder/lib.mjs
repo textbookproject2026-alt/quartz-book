@@ -203,6 +203,7 @@ export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
     revisionEndpoint: opts.revisionEndpoint,
     authors: opts.authors ?? "",
     licence: opts.licence ?? "",
+    privacyUrl: opts.privacyUrl ?? "",
     statsUrl: opts.statsUrl ?? "",
     statsHost: opts.statsUrl ? opts.domain : "",
     type: opts.type ?? "",
