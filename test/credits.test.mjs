@@ -426,7 +426,10 @@ test("Review all in chapter: a proposal accepted whole (merged) and one accepted
   const reopened = { ...part, number: 24, state: "open" }
   const claude = { ...part, number: 25, body: PR_BODY("`Claude` (`n***@anthropic.com`)") }
   const bot = { ...part, number: 26, body: PR_BODY("@github-actions[bot] (signed in with GitHub)") }
-  const items = contributions({ pulls: [whole, part, declined, reopened, claude, bot], automation: AUTOMATION })
+  const items = contributions({
+    pulls: [whole, part, declined, reopened, claude, bot],
+    automation: AUTOMATION,
+  })
   assert.deepEqual(
     items.map((c) => [c.ref, c.who.name, c.kind, c.date]),
     [
