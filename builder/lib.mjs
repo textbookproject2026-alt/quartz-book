@@ -305,7 +305,33 @@ export function pageTitle(markdown, path) {
   const t = fm && /^title:\s*(.+?)\s*$/m.exec(fm[1])
   if (t) return t[1].replace(/^(["'])(.*)\1$/, "$2")
   const h = /^#\s+(.+?)\s*#*\s*$/m.exec(fm ? markdown.slice(fm[0].length) : markdown)
-  return h ? h[1] : path.split("/").pop().replace(/\.md$/i, "")
+  if (h) return h[1]
+  // Never the file name itself: "chapter-04" reads as "Chapter 4" (as gen-contributors).
+  const words = path
+    .split("/")
+    .pop()
+    .replace(/\.md$/i, "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\b0+(\d)/g, "$1")
+    .trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/**
+ * A page with no title and no H1 gets the title pageTitle makes from its file name
+ * ("chapter-04" -> "Chapter 4"), in the copy Quartz reads: Quartz would show the
+ * file name itself, in the explorer and as the page's heading. Only frontmatter
+ * changes, so no text, paragraph number or annotation anchor moves. null when the
+ * page already has a title or an H1.
+ */
+export function withDerivedTitle(markdown, path) {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown)
+  if (fm && /^title:\s*\S/m.test(fm[1])) return null
+  if (/^#\s+\S/m.test(fm ? markdown.slice(fm[0].length) : markdown)) return null
+  const line = `title: ${JSON.stringify(pageTitle(markdown, path))}`
+  return fm
+    ? `---\n${line}\n${markdown.slice(markdown.indexOf("\n") + 1)}`
+    : `---\n${line}\n---\n\n${markdown}`
 }
 
 /**
@@ -1600,7 +1626,11 @@ const NOREPLY = /^(?:\d+\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.
  * is the platform's housekeeping. `automation` is the registry's
  * platform.automation_logins, lower-cased.
  */
-export function revisionAuthor({ name = "", email = "", body = "" }, automation = new Set()) {
+export function revisionAuthor(
+  { name = "", email = "", body = "" },
+  automation = new Set(),
+  members = new Map(),
+) {
   // A Set of logins (older callers) or isAutomation()'s test (the whole list).
   const listed =
     typeof automation === "function"
@@ -1608,7 +1638,15 @@ export function revisionAuthor({ name = "", email = "", body = "" }, automation 
       : (n) => automation.has(n.toLowerCase())
   const isBot = (n, e) => /\[bot\]/i.test(n) || /\[bot\]/i.test(e) || listed(n, e)
   const person = (n, e) => NOREPLY.exec(e)?.[1] ?? n
-  if (!isBot(name, email)) return { who: person(name, email) }
+  // The author site says who acted ("Sent by Name (member m-…)" or "Sent by @login"):
+  // the member's name as the registry has it now; never the platform's account or a test identity.
+  const member =
+    /^Sent by (.+?) \(member (m-[a-z0-9][a-z0-9-]{0,39})\) via the author site\.$/m.exec(body)
+  const memberName = member && (members.get(member[2]) || member[1])
+  if (memberName && !isBot(memberName, "")) return { who: memberName }
+  const site = /^Sent by @([A-Za-z0-9-]{1,39}) via the author site\.$/m.exec(body)?.[1]
+  if (site && !isBot(site, "")) return { who: site }
+  if (!isBot(name, email) && !member && !site) return { who: person(name, email) }
   const co = [...body.matchAll(/^Co-authored-by:\s*(.+?)\s*<([^>]*)>\s*$/gim)]
     .filter((m) => !isBot(m[1], m[2]))
     .map((m) => person(m[1], m[2]))
@@ -1617,16 +1655,23 @@ export function revisionAuthor({ name = "", email = "", body = "" }, automation 
   if (given) return { who: given }
   if (/Proposed by a reader with the in-site editor\.|^Proposed in #\d+\./m.test(body))
     return { who: "a reader", reader: true }
-  return { who: "automation", automation: true }
+  // Nobody to name (the platform's own housekeeping): no name at all, never the platform.
+  return { who: "", automation: true }
 }
 
 /** One page's list: [{ sha, date, who, reader?, automation?, message, path }], newest first. */
-export const revisionsOf = (follow, info, automation) =>
+export const revisionsOf = (follow, info, automation, members) =>
   follow
     .filter((r) => info.has(r.sha))
     .map(({ sha, path }) => {
       const c = info.get(sha)
-      return { sha, date: c.date, ...revisionAuthor(c, automation), message: c.subject, path }
+      return {
+        sha,
+        date: c.date,
+        ...revisionAuthor(c, automation, members),
+        message: c.subject,
+        path,
+      }
     })
 
 // Branches the platform makes itself, never built and expected to differ from
@@ -2325,6 +2370,8 @@ export const HISTORY_VERSION = 1
 
 const STOCK = [
   [/^Edit ¶(\d+) of \S+$/, (m) => `Paragraph ${m[1]} changed`],
+  [/^Accept suggestion #\d+ on \S+$/, () => "A reader's suggestion, accepted"],
+  [/^(?:Import|Bring in) \S+\.md from .*$/, () => "Brought in from a document"],
   [/^(?:Update|Edit) \S+\.md$/i, () => "Text changed"],
   [/^(?:Create|Add) \S+\.md$/i, () => "First published"],
 ]
@@ -2341,6 +2388,8 @@ const CONVENTIONAL =
 export function historySummary(subject = "", body = "") {
   let s = String(subject).trim()
   let pr = null
+  // An accepted reader suggestion (an issue): its number, for the entry's #issue-<n> anchor.
+  const issue = Number(/^Accept suggestion #(\d+) on /.exec(s)?.[1]) || null
   const tail = /\s*\(#(\d+)\)\s*$/.exec(s)
   if (tail) {
     pr = Number(tail[1])
@@ -2354,14 +2403,14 @@ export function historySummary(subject = "", body = "") {
     if (full && full.startsWith(s.slice(0, -1))) s = full
   }
   s = s
-    .replace(/^(?:Update|Edit ¶\d+ of) [^:\s]+: /, "")
+    .replace(/^(?:Update|Edit ¶\d* of) [^:\s]+: /, "")
     .replace(CONVENTIONAL, "")
     .trim()
   for (const [re, say] of STOCK) {
     const m = re.exec(s)
-    if (m) return { summary: say(m), pr }
+    if (m) return { summary: say(m), pr, ...(issue ? { issue } : {}) }
   }
-  return { summary: s || "Changed", pr }
+  return { summary: s || "Changed", pr, ...(issue ? { issue } : {}) }
 }
 
 /** A history entry's person in their role on the page: author, editor, contributor, or null (automation). */
@@ -2382,15 +2431,23 @@ export function roleOf(rev, { creators = [], editors = [] } = {}) {
  * `declined`: the function's declined items (public fields), kept as they are.
  */
 export function historyData({ files, pages, releases, declined = [] }) {
+  // A file named in a summary reads as its page's title ("chapter-01.md" -> "Chapter 1").
+  const titles = new Map()
+  for (const [path, p] of Object.entries(pages)) {
+    titles.set(path, p.title)
+    if (!titles.has(path.split("/").pop())) titles.set(path.split("/").pop(), p.title)
+  }
+  const named = (s) => s.replace(/[\w./-]+\.md\b/g, (f) => titles.get(f) ?? f)
   const entry = (people, source) => (r) => {
-    const { summary, pr } = historySummary(r.message, r.body)
+    const { summary, pr, issue } = historySummary(r.message, r.body)
     return {
       sha: r.sha,
       date: dateOnly(r.date),
-      who: r.automation ? "the platform" : r.who,
+      who: r.automation ? "" : r.who,
       role: roleOf(r, people),
-      summary,
+      summary: named(summary),
       ...(pr ? { pr } : {}),
+      ...(issue ? { issue } : {}),
       // The page's path in that commit, where it has moved since (page-revision needs it).
       ...(r.path && r.path !== source ? { path: r.path } : {}),
     }
@@ -2483,7 +2540,7 @@ export function swimlaneSvg(history, { width = 760 } = {}) {
   for (const c of [...changes].sort(
     (a, b) => a.date.localeCompare(b.date) || a.sha.localeCompare(b.sha),
   )) {
-    const title = `<title>${escHtml(`${c.date} · ${c.title}: ${c.summary} (${c.who})`)}</title>`
+    const title = `<title>${escHtml(`${c.date} · ${c.title}: ${c.summary}${c.who ? ` (${c.who})` : ""}`)}</title>`
     if (c.lane === 3) {
       // Declined: a ring with a cross, drawn with strokes only (a group, focusable, one title).
       const cx = Number(x(c.date))
@@ -2545,7 +2602,7 @@ export function historyPageMarkdown(history, { repo }) {
     ...(recent.length
       ? recent.map(
           (e) =>
-            `- ${e.date}, [${escHtml(e.title)}](${e.url}): ${escHtml(e.summary)} (${escHtml(e.who)})`,
+            `- ${e.date}, [${escHtml(e.title)}](${e.url}): ${escHtml(e.summary)}${e.who ? ` (${escHtml(e.who)})` : ""}`,
         )
       : ["Nothing published yet."]),
     "",

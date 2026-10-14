@@ -156,7 +156,7 @@ test("each page's revisions: newest first, across a rename, credited as the pane
   )
   assert.deepEqual(
     stats.map((r) => [r.who, r.automation]),
-    [["automation", true]],
+    [["", true]],
   )
 })
 
@@ -192,7 +192,7 @@ test("revisionAuthor: never the App; a bot's human co-authors; plain names as gi
     "a person's commit is theirs, whatever its trailers say",
   )
   assert.deepEqual(revisionAuthor({ name: APP[0], email: APP[1], body: "Something else" }), {
-    who: "automation",
+    who: "",
     automation: true,
   })
 })
@@ -314,7 +314,7 @@ test("history.json: per page, published and being edited, with roles and summari
           {
             sha: "a".repeat(40),
             date: "2026-09-01",
-            who: "the platform",
+            who: "",
             role: null,
             summary: "First published",
             path: "chapters/old c.md",
@@ -449,4 +449,90 @@ test("the marker names the other branch's head: a build is stale when either bra
     !markerCurrent({ ...served, other_commit: undefined }, want),
     "a marker from before batch 2a rebuilds once",
   )
+})
+
+test("history names (13 Oct fixes): the member who acted, never the platform's account or a test identity; titles, not file names", async () => {
+  const { isAutomation } = await import("../automation/scripts/lib/credits.mjs")
+  const auto = isAutomation({
+    logins: ["aldogobot"],
+    identities: ["textbookproject2026-alt", "Part 3 Test Member"],
+  })
+  const members = new Map([["m-ab738d332e", "Alec Gordon"]])
+  const PLATFORM = [
+    "textbookproject2026-alt",
+    "293933548+textbookproject2026-alt@users.noreply.github.com",
+  ]
+  const by = (name, email, body) => revisionAuthor({ name, email, body }, auto, members)
+  // A member's edit: their name as the registry has it now.
+  assert.deepEqual(
+    by(
+      "A. Gordon",
+      "m-ab738d332e@users.noreply.confused4now.org",
+      "Edit “Chapter 1”\n\nSent by A. Gordon (member m-ab738d332e) via the author site.",
+    ),
+    { who: "Alec Gordon" },
+  )
+  // Sent through the platform's own account, or by a test identity: nobody is named.
+  assert.deepEqual(
+    by(...PLATFORM, "Edit “Chapter 1”\n\nSent by @textbookproject2026-alt via the author site."),
+    { who: "", automation: true },
+  )
+  assert.deepEqual(
+    by(
+      "Part 3 Test Member",
+      "m-223ddbe62e@users.noreply.confused4now.org",
+      "x\n\nSent by Part 3 Test Member (member m-223ddbe62e) via the author site.",
+    ),
+    { who: "", automation: true },
+  )
+  // The platform's account committing directly is housekeeping, not a person.
+  assert.deepEqual(by("textbookproject2026-alt", "someone@gmail.com", "Discard the test edits"), {
+    who: "",
+    automation: true,
+  })
+  // An accepted reader proposal is the reader's, not the author who accepted it nor the account it was sent from.
+  assert.deepEqual(
+    by(
+      APP[0],
+      APP[1],
+      "Proposed in #75.\n\nAccepted by Alec Gordon (member m-ab738d332e) via the author site.\n\nCo-authored-by: textbookproject2026-alt <a@gmail.com>",
+    ),
+    { who: "a reader", reader: true },
+  )
+  // Summaries and titles: no file names; an accepted suggestion keeps its issue number.
+  assert.deepEqual(historySummary("Accept suggestion #7 on chapter-2"), {
+    summary: "A reader's suggestion, accepted",
+    pr: null,
+    issue: 7,
+  })
+  assert.equal(
+    historySummary("Edit ¶ of chapter-01.md: missing word one (#75)").summary,
+    "missing word one",
+  )
+  const h = historyData({
+    files: {
+      "chapters/chapter-01.md": {
+        published: [
+          {
+            sha: "a".repeat(40),
+            date: "2026-10-14T10:00:00Z",
+            who: "",
+            automation: true,
+            message: "Contents: chapter-01.md moved",
+            body: "",
+          },
+        ],
+        drafts: [],
+        releases: {},
+      },
+    },
+    pages: {
+      "chapters/chapter-01.md": { url: "/chapters/chapter-01", title: "Chapter 1", people: {} },
+    },
+    releases: [],
+  })
+  assert.equal(h.pages[0].published[0].who, "")
+  assert.equal(h.pages[0].published[0].summary, "Contents: Chapter 1 moved")
+  const md = historyPageMarkdown(h, { repo: "o/r" })
+  assert.doesNotMatch(md, /the platform|\(\)/)
 })
