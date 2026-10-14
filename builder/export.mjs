@@ -261,10 +261,13 @@ function main() {
       made.set(key, { ...made.get(key), [ext]: `/${EXPORT_DIR}/${name}` })
     } catch (err) {
       rmSync(out, { force: true })
-      const why = String(err.stderr || err.message)
+      const lines = String(err.stderr || err.message)
         .trim()
         .split("\n")
-        .slice(-3)
+      // Typst's own "error: …" line first (what to fix), then where it stopped.
+      const first = lines.findIndex((l) => /^\s*error:/.test(l))
+      const why = (first === -1 ? lines.slice(-3) : lines.slice(first, first + 3))
+        .map((l) => l.replace(/\s+/g, " ").trim())
         .join(" ")
       warn(`${name} was not made: ${why}`)
       // Left out, and so not linked: no dead link. Reported, never fatal.
