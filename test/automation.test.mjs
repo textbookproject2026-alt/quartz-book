@@ -630,3 +630,58 @@ test("decision notice: a note on a paragraph, closed as completed or not planned
     null,
   )
 })
+
+test("contributors: a chapter published on its own credits the drafts edits it carried (Publishes-commit), once, before Publish all", async () => {
+  const book = makeBook()
+  const git = (...args) => execFileSync("git", ["-C", book.dir, ...args], { encoding: "utf8" })
+  // A member's edit on the drafts branch, not yet on main.
+  git("checkout", "--quiet", "-b", "drafts")
+  writeFileSync(
+    join(book.dir, "chapters/chapter-03.md"),
+    "# Chapter 3: Reality\n\nText, edited in the drafts.\n",
+  )
+  git("add", "-A")
+  git(
+    "-c",
+    "user.name=Hal Member",
+    "-c",
+    "user.email=1+hal-member@users.noreply.github.com",
+    "commit",
+    "--quiet",
+    "-m",
+    "Edit chapter 3\n\nSent by @hal-member via the author site.",
+  )
+  const carried = git("rev-parse", "HEAD").trim()
+  // "Publish this chapter": the App's one commit on main, naming the drafts commit it carries.
+  git("checkout", "--quiet", "main")
+  writeFileSync(
+    join(book.dir, "chapters/chapter-03.md"),
+    "# Chapter 3: Reality\n\nText, edited in the drafts.\n",
+  )
+  git("add", "-A")
+  git(
+    "-c",
+    "user.name=textbook-suggest-edit[bot]",
+    "-c",
+    "user.email=1+textbook-suggest-edit[bot]@users.noreply.github.com",
+    "commit",
+    "--quiet",
+    "-m",
+    `Published “Chapter 3: Reality” (#9)\n\nPublished by @someone via the author site: this chapter only.\n\nPublishes-commit: ${carried}\nPublishes-commit: ${"0".repeat(40)}`,
+  )
+  const res = await contributorsRun(book, {}, "--stdout")
+  assert.equal(res.status, 0, res.stderr)
+  assert.match(
+    res.stdout,
+    /\| Hal Member \(\[GitHub\]\(https:\/\/github\.com\/hal-member\)\) \| 1 edit \| \[\[chapters\/chapter-03\\\|Chapter 3: Reality\]\] \|/,
+  )
+  assert.doesNotMatch(res.stdout, /textbook-suggest-edit/)
+  // Publish all later brings the same commit over: still one edit.
+  git("merge", "--quiet", "--no-edit", "-m", "Publish the drafts to the live book", "drafts")
+  const again = await contributorsRun(book, {}, "--stdout")
+  assert.equal(again.status, 0, again.stderr)
+  assert.match(
+    again.stdout,
+    /\| Hal Member \(\[GitHub\]\(https:\/\/github\.com\/hal-member\)\) \| 1 edit \|/,
+  )
+})
