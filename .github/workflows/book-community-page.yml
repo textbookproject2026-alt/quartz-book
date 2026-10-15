@@ -78,7 +78,7 @@ on:
         required: false
     outputs:
       merged:
-        description: "\"true\" when a run started by a push merged its page, so the caller can nudge the builder."
+        description: "\"true\" when the run's page merged, so the caller can nudge the builder."
         value: ${{ jobs.page.outputs.merged }}
 
 jobs:
@@ -356,15 +356,15 @@ jobs:
 
           echo "::warning::Could not arm auto-merge on PR #${PR}. Check that \"Allow auto-merge\" is on under Settings -> General, and that ${BASE}'s protection lets github-actions[bot] merge. The pull request is open and untouched."
 
-      # After a publish (a run started by a push to the live branch), wait for the
-      # page's pull request to merge, so the caller can nudge the builder and the
-      # next build serves the page. That merge is the workflow token's, which starts
-      # no workflows, so without the nudge the page waits for the 15-minute check.
-      # build-nudge accepts only push runs' tokens, so scheduled and hand runs skip
-      # this and leave it to that check.
+      # Wait for the page's pull request to merge, so the caller can nudge the
+      # builder and the next build serves the page. That merge is the workflow
+      # token's, which starts no workflows, so without the nudge the page waits for
+      # the 15-minute check. Every run: a push, the weekly one and one by hand
+      # (build-nudge takes their tokens too since 15 Oct; platform-test-book #163 was
+      # a hand run's page, built only by the next tick).
       - name: Wait for the page to merge
         id: merged
-        if: steps.pr.outputs.number != '' && github.event_name == 'push'
+        if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ steps.pr.outputs.number }}
