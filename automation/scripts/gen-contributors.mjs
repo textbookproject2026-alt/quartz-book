@@ -137,8 +137,30 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
  *  --no-merges on purpose: a merge commit is a maintainer pressing a button,
  *  and counting it would credit the same work twice. */
 function readCommits() {
-  const out = git('log', '--no-merges', '-z', `--format=%H${US}%aN${US}%aE${US}%aI${US}%s${US}%B`);
   const touches = readPageTouches();
+  const commits = parseLog(git('log', '--no-merges', '-z', `--format=%H${US}%aN${US}%aE${US}%aI${US}%s${US}%B`), touches);
+  // "Publish this chapter" (suggest-edit-function lib/publish-chapter.mjs) puts one chapter
+  // on the live branch in one commit naming the drafts commits it carries:
+  // "Publishes-commit: <sha>". Those are credited now, as if Publish all had brought them;
+  // when it does, they are the same commits, counted once. The checkout has every branch
+  // (fetch-depth 0); a sha it hasn't got is skipped.
+  const have = new Set(commits.map((c) => c.sha));
+  const carried = [...new Set(commits.flatMap((c) => [...c.body.matchAll(/^Publishes-commit: ([0-9a-f]{40})$/gm)].map((m) => m[1])))].filter((sha) => !have.has(sha));
+  for (const sha of carried) {
+    try {
+      const out = git('log', '--no-walk', '-z', `--format=%H${US}%aN${US}%aE${US}%aI${US}%s${US}%B`, sha);
+      const pages = git('log', '--no-walk', '-M', '--name-only', '--format=', sha, '--', ...PAGE_PATHS).split('\n').filter((l) => l.endsWith('.md'));
+      commits.push(...parseLog(out, new Map([[sha, pages]])));
+    } catch {
+      /* not in this checkout */
+    }
+  }
+  // Newest first, as git log gave them.
+  return commits.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
+/** `git log -z` records (the format above) as commits, with the pages each touched. */
+function parseLog(out, touches) {
   return out.split('\0').filter((r) => r.trim()).map((record) => {
     const [sha, name, email, date, subject, body = ''] = record.replace(/^\n/, '').split(US);
     const bot = isBot(name, email);
@@ -150,7 +172,9 @@ function readCommits() {
 
 /** sha -> [paths] of the pages it touched (chapters, the front page, the glossary). */
 function readPageTouches() {
-  const out = git('log', '--no-merges', '-M', '--name-only', `--format=${RS}%H`, '--', ...PAGE_PATHS);
+  // --full-history: a merge whose result one side already had (Publish all after a chapter
+  // was published alone) would otherwise hide the other side's commits from a path-limited log.
+  const out = git('log', '--no-merges', '--full-history', '-M', '--name-only', `--format=${RS}%H`, '--', ...PAGE_PATHS);
   const touches = new Map();
   let sha = null;
   for (const line of out.split('\n')) {
