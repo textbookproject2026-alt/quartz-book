@@ -677,7 +677,18 @@ test("contributors: a chapter published on its own credits the drafts edits it c
   )
   assert.doesNotMatch(res.stdout, /textbook-suggest-edit/)
   // Publish all later brings the same commit over: still one edit.
-  git("merge", "--quiet", "--no-edit", "-m", "Publish the drafts to the live book", "drafts")
+  git(
+    "-c",
+    "user.name=Book Bot",
+    "-c",
+    "user.email=bot@example.org",
+    "merge",
+    "--quiet",
+    "--no-edit",
+    "-m",
+    "Publish the drafts to the live book",
+    "drafts",
+  )
   const again = await contributorsRun(book, {}, "--stdout")
   assert.equal(again.status, 0, again.stderr)
   assert.match(
