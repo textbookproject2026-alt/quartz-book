@@ -287,7 +287,8 @@ jobs:
   # that isn't built, live-branch files drafts doesn't have, and pull requests
   # into the live branch from anywhere but drafts. Each is a warning and a line
   # in the run summary. With the books App set up here (BOOKS_APP_CLIENT_ID,
-  # BOOKS_APP_PRIVATE_KEY, Issues write), one issue per book is kept up to date.
+  # BOOKS_APP_PRIVATE_KEY, Issues and Contents write), the platform's branches whose
+  # pull request has merged are deleted first, and one issue per book is kept up to date.
   # Like extras, it never fails the run.
   branches:
     needs: drafts
@@ -308,7 +309,7 @@ jobs:
         id: owner
         run: echo "owner=$(curl -fsS https://raw.githubusercontent.com/textbookproject2026-alt/textbook-registry/main/registry.json | jq -er .platform.books_owner)" >> "$GITHUB_OUTPUT"
 
-      - name: The books App's token, for the issues
+      - name: The books App's token, for the issues and deleting merged branches
         id: app
         if: vars.BOOKS_APP_CLIENT_ID != ''
         uses: actions/create-github-app-token@v3
@@ -317,6 +318,7 @@ jobs:
           private-key: ${{ secrets.BOOKS_APP_PRIVATE_KEY }}
           owner: ${{ steps.owner.outputs.owner }}
           permission-issues: write
+          permission-contents: write
 
       # Fails until the quartz-book bot App has Issues: write (README); then the
       # books in the platform's own account get their issue too.
@@ -330,6 +332,7 @@ jobs:
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           permission-issues: write
+          permission-contents: write
 
       - name: Flag work outside drafts
         env:

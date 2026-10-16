@@ -1676,9 +1676,29 @@ export const revisionsOf = (follow, info, automation, members) =>
     })
 
 // Branches the platform makes itself, never built and expected to differ from
-// drafts: reader edits (proposed-edits/*, into drafts), the Sunday community pages
-// and the config render (chore/*), and the annotation backups.
-const PLATFORM_BRANCH = /^(proposed-edits\/|chore\/|backups$)/
+// drafts: reader edits (proposed-edits/*, into drafts), a chapter or the rest of the
+// book published on its own (publish-chapter/*, into the live branch, while its checks
+// run), the Sunday community pages and the config render (chore/*), and the
+// annotation backups.
+const PLATFORM_BRANCH = /^(proposed-edits\/|publish-chapter\/|chore\/|backups$)/
+
+/**
+ * The platform's branches whose pull request has merged, to delete: a chapter published
+ * on its own (publish-chapter/*) and a reader's accepted edit (proposed-edits/*). GitHub
+ * merges them after the function that opened them has answered, and nothing else deletes
+ * them, so they pile up (70 on platform-test-book by 16 Oct). Only a branch still at the
+ * commit that merged: one with anything newer on it is left alone. A pull request closed
+ * without merging (declined, or replaced) keeps its branch.
+ * `branches`: [{ name, sha }]; `pulls`: closed pull requests [{ head, sha, merged }].
+ */
+export function mergedBranches(branches, pulls) {
+  const merged = new Map(pulls.filter((p) => p.merged).map((p) => [p.head, p.sha]))
+  return branches
+    .filter(
+      (b) => /^(publish-chapter|proposed-edits)\//.test(b.name) && merged.get(b.name) === b.sha,
+    )
+    .map((b) => b.name)
+}
 
 /**
  * What the reconcile tick flags in one book (05 Oct): work its builds never see,
