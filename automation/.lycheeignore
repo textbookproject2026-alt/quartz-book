@@ -2,3 +2,7 @@
 # automation/scripts/lychee-ignore.mjs fills in __SITE_DOMAIN__ from the book's
 # registry entry and appends the book's own .lycheeignore, if it has one.
 https://__SITE_DOMAIN__
+# doi.org answers link checkers with 403 (it turns away automated requests), so its
+# links can't be checked from here; a DOI that is wrong is the reference's problem,
+# not the link's.
+^https?://(dx\.)?doi\.org/
