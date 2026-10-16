@@ -69,6 +69,18 @@ test("the ignore list fills in the book's address and keeps the book's own lines
   const platform = readFileSync(new URL("../automation/.lycheeignore", import.meta.url), "utf8")
   assert.match(mergeIgnore(platform, null, "b.example.invalid"), /^https:\/\/b\.example\.invalid$/m)
   assert.doesNotMatch(mergeIgnore(platform, null, "b.example.invalid"), /__/)
+  // doi.org answers checkers with 403: its links are skipped, nothing else is.
+  const rules = mergeIgnore(platform, null, "b.example.invalid")
+    .split("\n")
+    .filter((l) => l && !l.startsWith("#"))
+    .map((l) => new RegExp(l))
+  for (const url of ["https://doi.org/10.1111/jtsb.12181", "http://dx.doi.org/10.2307/1961840"])
+    assert.ok(
+      rules.some((r) => r.test(url)),
+      url,
+    )
+  for (const url of ["https://example.org/doi.org/x", "https://notdoi.org/x"])
+    assert.ok(!rules.some((r) => r.test(url)), url)
   assert.equal(
     mergeIgnore("https://__SITE_DOMAIN__\n", "https://x.invalid\n", "b.example.invalid"),
     "https://b.example.invalid\n# From the book's own .lycheeignore\nhttps://x.invalid\n",
