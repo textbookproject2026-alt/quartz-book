@@ -7,12 +7,23 @@
 //
 //   node builder/branches.mjs
 //
+// First, with an App token, the platform's branches whose pull request has merged are
+// deleted (lib.mjs mergedBranches), so a chapter published on its own leaves nothing
+// behind to flag.
+//
 // Environment: GH_TOKEN (reads; the book repos are public), BOOKS_OWNER +
-// BOOKS_TOKEN (the books App, Issues write) and PLATFORM_OWNER + PLATFORM_TOKEN
-// (the quartz-book bot App, for books in the platform's own account), each
-// optional; REGISTRY_FILE (a local registry.json, for testing).
+// BOOKS_TOKEN (the books App, Issues and Contents write) and PLATFORM_OWNER +
+// PLATFORM_TOKEN (the quartz-book bot App, for books in the platform's own account),
+// each optional; REGISTRY_FILE (a local registry.json, for testing).
 import { appendFileSync, readFileSync } from "node:fs"
-import { REGISTRY_URL, appGap, branchFindings, ownerTokens, reconcileTargets } from "./lib.mjs"
+import {
+  REGISTRY_URL,
+  appGap,
+  branchFindings,
+  mergedBranches,
+  ownerTokens,
+  reconcileTargets,
+} from "./lib.mjs"
 
 const TITLE = "Changes outside drafts"
 const FOOT =
@@ -57,6 +68,35 @@ async function findings(content) {
   return branchFindings(content, { changed, pulls })
 }
 
+/** Delete the platform's branches whose pull request has merged. -> the names deleted. */
+async function pruneMerged(repo, token) {
+  const branches = (await gh(`/repos/${repo}/branches?per_page=100`)).map((b) => ({
+    name: b.name,
+    sha: b.commit.sha,
+  }))
+  if (!branches.some((b) => /^(publish-chapter|proposed-edits)\//.test(b.name))) return []
+  const pulls = (
+    await gh(`/repos/${repo}/pulls?state=closed&per_page=100&sort=updated&direction=desc`)
+  ).map((p) => ({
+    head: p.head.ref,
+    sha: p.head.sha,
+    merged: Boolean(p.merged_at),
+  }))
+  const gone = []
+  for (const name of mergedBranches(branches, pulls)) {
+    try {
+      await gh(
+        `/repos/${repo}/git/refs/heads/${name.split("/").map(encodeURIComponent).join("/")}`,
+        { token, method: "DELETE" },
+      )
+      gone.push(name)
+    } catch (err) {
+      console.log(`::warning title=${repo}::couldn't delete ${name}: ${err.message}`)
+    }
+  }
+  return gone
+}
+
 /** Open, update or close the book's one issue. */
 async function keepIssue(repo, found, token) {
   const open = (await gh(`/repos/${repo}/issues?state=open&per_page=100`, { token })).find(
@@ -94,6 +134,17 @@ for (const [owner, t] of tokens) {
 summary("### Changes outside drafts\n\n")
 for (const book of books.filter((b) => b.content.drafts_branch)) {
   try {
+    const gap = appGap(book.content.repo, tokens, installed)
+    if (!gap) {
+      const gone = await pruneMerged(
+        book.content.repo,
+        tokens.get(book.content.repo.split("/")[0].toLowerCase()).token,
+      )
+      if (gone.length)
+        summary(
+          `**${book.slug}**: deleted ${gone.length} merged branch(es): ${gone.map((n) => `\`${n}\``).join(", ")}\n\n`,
+        )
+    }
     const found = await findings(book.content)
     summary(
       found.length
@@ -101,7 +152,6 @@ for (const book of books.filter((b) => b.content.drafts_branch)) {
         : `**${book.slug}**: nothing flagged.\n\n`,
     )
     for (const f of found) console.log(`::warning title=${book.slug}::${f.replaceAll("`", "")}`)
-    const gap = appGap(book.content.repo, tokens, installed)
     if (!gap) {
       const owner = book.content.repo.split("/")[0].toLowerCase()
       await keepIssue(book.content.repo, found, tokens.get(owner).token)

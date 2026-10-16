@@ -10,6 +10,7 @@ import {
   bookOptions,
   appGap,
   branchFindings,
+  mergedBranches,
   ownerTokens,
   SYNC_MESSAGE,
   syncDrafts,
@@ -800,6 +801,38 @@ test("branchFindings flags work drafts doesn't have, and nothing the platform ma
   assert.match(found[2], /^Pull request #5 goes into `main` from `add-chapters`/)
   // After publishing, main is a merge commit ahead of drafts but changes nothing.
   assert.deepEqual(branchFindings(content, { changed: { main: 0 }, pulls: [] }), [])
+})
+
+test("mergedBranches: a chapter publish's or an accepted edit's branch once its pull request merged, at that commit; nothing else", () => {
+  const branches = [
+    { name: "publish-chapter/chapter-05-a", sha: "1" }, // merged
+    { name: "publish-chapter/chapter-06-b", sha: "2" }, // still open (no closed PR)
+    { name: "publish-chapter/chapter-07-c", sha: "9" }, // merged at 3, then moved on: kept
+    { name: "proposed-edits/fix-typo", sha: "4" }, // accepted (merged)
+    { name: "proposed-edits/declined", sha: "5" }, // closed without merging: kept
+    { name: "drafts", sha: "6" },
+    { name: "add-chapters", sha: "7" }, // someone's own branch, merged: never the platform's to delete
+  ]
+  const pulls = [
+    { head: "publish-chapter/chapter-05-a", sha: "1", merged: true },
+    { head: "publish-chapter/chapter-07-c", sha: "3", merged: true },
+    { head: "proposed-edits/fix-typo", sha: "4", merged: true },
+    { head: "proposed-edits/declined", sha: "5", merged: false },
+    { head: "add-chapters", sha: "7", merged: true },
+  ]
+  assert.deepEqual(mergedBranches(branches, pulls), [
+    "publish-chapter/chapter-05-a",
+    "proposed-edits/fix-typo",
+  ])
+  // An open chapter publish, while its checks run, isn't flagged either.
+  const found = branchFindings(
+    { live_branch: "main", drafts_branch: "drafts" },
+    {
+      changed: { "publish-chapter/chapter-06-b": 1 },
+      pulls: [{ number: 9, head: "publish-chapter/chapter-06-b" }],
+    },
+  )
+  assert.deepEqual(found, [])
 })
 
 test("appGap: an App for each owner, the repo in its installation", () => {
