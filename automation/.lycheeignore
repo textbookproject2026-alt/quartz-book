@@ -1,5 +1,5 @@
 # The link check's ignore list for every book (.github/workflows/book-link-check.yml).
-# automation/scripts/lychee-ignore.mjs fills in __SITE_DOMAIN__ from the book's
+# automation/scripts/lychee-ignore.mjs fills in the book's address below from its
 # registry entry and appends the book's own .lycheeignore, if it has one.
 https://__SITE_DOMAIN__
 # doi.org answers link checkers with 403 (it turns away automated requests), so its
