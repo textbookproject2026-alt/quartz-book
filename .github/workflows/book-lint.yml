@@ -22,18 +22,6 @@ name: book-lint
 # automation/.markdownlint-cli2.yaml, if it has none.
 
 on:
-#     push:
-#       branches: [main]
-#     pull_request:
-#   jobs:
-#     markdownlint:
-#       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-lint.yml@stable
-#
-# markdownlint-cli2 over every Markdown file in the checkout, with the platform's
-# rules, automation/.markdownlint-cli2.yaml. A book that keeps its own
-# .markdownlint-cli2.yaml at its root is linted with that one instead.
-
-on:
   workflow_call:
     inputs:
       platform_ref:
