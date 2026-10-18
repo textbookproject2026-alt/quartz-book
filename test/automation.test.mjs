@@ -86,6 +86,9 @@ test("the ignore list fills in the book's address and keeps the book's own lines
     "https://b.example.invalid\n# From the book's own .lycheeignore\nhttps://x.invalid\n",
   )
   assert.throws(() => mergeIgnore("https://__OTHER__\n", null, "b"), /__OTHER__/)
+  // No address known (the template, or the registry unreachable): that line is dropped, the rest kept.
+  assert.equal(mergeIgnore(platform, "^https://x\\.invalid/\n", null).includes("__"), false)
+  assert.match(mergeIgnore(platform, "^https://x\\.invalid/\n", null), /doi\\.org[\s\S]*From the book's own[\s\S]*x\\.invalid/)
 })
 
 // --- the community pages, run on a throwaway book ----------------------------------

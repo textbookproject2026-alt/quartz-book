@@ -1,9 +1,27 @@
 name: book-lint
 
-# A book's Markdown lint, as a reusable workflow (BOOK-ONE-TO-QUARTZ §8 step 14,
-# D6). The book's thin caller:
+# Every book's Markdown lint, as a reusable workflow. The book's thin caller,
+# .github/workflows/lint.yml (textbook-template), keeps the triggers:
 #
 #   on:
+#     push:
+#     pull_request:
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     markdownlint:
+#       uses: textbookproject2026-alt/quartz-book/.github/workflows/book-lint.yml@main
+#
+# The required check on the book's live branch is "markdownlint / markdownlint"
+# (book-requests scripts/lib.mjs REQUIRED_CHECKS): the caller's job id, then this job's.
+#
+# markdownlint-cli2 over every Markdown file in the checkout, with the book's own
+# .markdownlint-cli2.yaml (every book has one, from the template: the author site's
+# formatting check reads the same file), or the platform's copy,
+# automation/.markdownlint-cli2.yaml, if it has none.
+
+on:
 #     push:
 #       branches: [main]
 #     pull_request:
@@ -22,7 +40,7 @@ on:
         description: The quartz-book ref the rules are taken from. Keep it the ref the caller names after the @.
         required: false
         type: string
-        default: stable
+        default: main
 
 jobs:
   markdownlint:

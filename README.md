@@ -225,11 +225,15 @@ The header of each workflow shows its caller.
 | `book-weekly-snapshot.yml`    | The `snapshot-YYYY-MM-DD` tag, when the live branch changed                                           | `weekly-snapshot.yml`                                  |
 | `book-community-page.yml`     | `community/<page>.md` as an auto-merging pull request; `page:` contributors, dashboard or derivatives. Contributors also writes the credit ledger, `community/credits.json` | `contributors.yml`, `dashboard.yml`, `derivatives.yml` |
 | `book-lint.yml`               | markdownlint, with `automation/.markdownlint-cli2.yaml` unless the book has its own                   | `lint.yml`                                             |
-| `book-link-check.yml`         | lychee, ignoring `automation/.lycheeignore` (the book's address) plus the book's own list             | `link-check.yml`                                       |
+| `book-link-check.yml`         | lychee, ignoring `automation/.lycheeignore` (doi.org, the book's address) plus the book's own list, if any; dead links in a pull request comment, only broken links inside the book fail | `link-check.yml`                                       |
 | `book-decision-notice.yml`    | When a `proposed-edit` pull request or a `section-note` issue closes, one comment @mentioning the signed-in contributor: accepted or declined, the maintainer's last comment, the page | `decision-notice.yml` (textbook-template) |
 
 - **Callers name `@stable`,** the same builder commit `reconcile` builds with, so a
   change here reaches the books' jobs when `stable` moves, after its pull request's CI.
+- **Except the book checks:** `lint.yml` and `link-check.yml` call `book-lint.yml` and
+  `book-link-check.yml` `@main`, so a change to the checks reaches every book as soon as it
+  merges. Their check names on a book are `markdownlint / markdownlint` and `lychee / lychee`
+  (the books' required checks, book-requests `REQUIRED_CHECKS`).
   Each workflow fetches `automation/` at its `platform_ref` input, `stable` by default.
   A caller pointed at another ref for a trial must pass the same ref as `platform_ref`.
 - **What they read:** the book's registry entry, found from `textbook.config.json`'s
