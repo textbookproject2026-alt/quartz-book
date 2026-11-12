@@ -117,6 +117,15 @@ Exit status: `0` built, `2` refused (below), anything else a failed build.
 Quartz reads `quartz.config.yaml` only from its working directory, so the build runs in
 a scratch directory that holds the rendered config and links everything else back here.
 
+### Test books
+
+A book whose registry entry has `sandbox: true` (a test book the platform maintainer made
+on the author site) is built exactly like any other, but: no Plausible and no statistics
+links (as for a preview), `X-Robots-Tag: noindex` on every branch, and on every page a
+`<meta name="robots" content="noindex,nofollow">` and a strip first in the centre column,
+"Test book — not published, will be removed" (`testBookHtml`, styled as the credits block).
+The portal leaves it out.
+
 ## Deploying: `reconcile`
 
 `.github/workflows/reconcile.yml` (§0a, §8 step 9) builds and deploys every book whose

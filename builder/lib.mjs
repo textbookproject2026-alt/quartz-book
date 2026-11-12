@@ -76,7 +76,11 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
   // field is a typo, not "no analytics".
   if (registry.platform?.analytics === undefined)
     refuse("the registry has no platform.analytics. Give the platform's Plausible site, or null.")
-  const counted = book.status === "live"
+  // A test book (registry `sandbox: true`, made by the platform maintainer): built
+  // like any book, so it tests the real thing, but never counted or indexed, and
+  // every page says what it is (testBookHtml).
+  const testBook = book.sandbox === true
+  const counted = book.status === "live" && !testBook
   const plausibleSrc = registry.platform.analytics?.plausible?.script_src ?? ""
   return {
     slug: book.slug,
@@ -87,7 +91,8 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     liveBranch: book.content.live_branch,
     // D13: every branch but the live one is a preview: public, but noindex. So
     // is a design preview of the live branch (§4b), deployed beside it.
-    noindex: preview || branch !== book.content.live_branch,
+    noindex: preview || branch !== book.content.live_branch || testBook,
+    testBook,
     // Shown only for books with suggest-edit on. Elsewhere the function would
     // answer 403, so the button stays hidden (edit-on-github's "" default).
     suggestEndpoint: suggestEnabled ? endpoint : "",
@@ -2342,6 +2347,20 @@ export function creditsBlockHtml(meta, contributorCount, href) {
   // The book's version history (batch 2a, Part B), from the same block.
   const history = `<p><a href="/${HISTORY_PAGE}">Book history: what has changed, and what is being edited</a></p>`
   return `<div class="tb-credits-block" role="note" aria-label="Credits">${body}${history}</div>`
+}
+
+/** A test book's pages: kept out of search engines, and the strip at the top of the centre column. */
+export const TEST_BOOK_META = '<meta name="robots" content="noindex,nofollow">'
+export const TEST_BOOK_STRIP =
+  '<div class="tb-credits-block tb-test-book" role="note" aria-label="Test book"><p>Test book — not published, will be removed</p></div>'
+
+/** A page of a test book: the robots meta in <head>, the strip first in the centre column. */
+export function testBookHtml(html) {
+  const head = html.replace("</head>", `${TEST_BOOK_META}</head>`)
+  const at = head.indexOf('<div class="center">')
+  return at === -1
+    ? head
+    : head.slice(0, at + '<div class="center">'.length) + TEST_BOOK_STRIP + head.slice(at + '<div class="center">'.length)
 }
 
 /** `extra` after the page's title heading (Quartz's h1.article-title); unchanged when there is none or nothing to add. */
