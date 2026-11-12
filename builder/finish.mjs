@@ -21,6 +21,7 @@ import {
   bylineHtml,
   creatorsOf,
   creditsBlockHtml,
+  testBookHtml,
   creditsFootHtml,
   CREDIT_OVERRIDES,
   editorsOf,
@@ -162,6 +163,7 @@ for (const file of walkFiles(outDir)) {
   const slug = path.slice(0, -".html".length)
   let html = readFileSync(file, "utf8")
   html = addCanonical(html, facts.domain, url)
+  if (facts.testBook) html = testBookHtml(html)
   html = orderFolderListing(html, slug, facts.contentsOrder ?? [])
   // DOIs as doi.org links (lib.mjs, linkDois), before the link icons are kept with their words.
   html = linkDois(html)

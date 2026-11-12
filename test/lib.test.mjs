@@ -8,6 +8,8 @@ import {
   BuildRefused,
   addCanonical,
   bookOptions,
+  testBookHtml,
+  TEST_BOOK_META,
   appGap,
   branchFindings,
   mergedBranches,
@@ -1067,4 +1069,27 @@ test("withDerivedTitle: a page with no title and no H1 is titled from its file n
   )
   assert.equal(withDerivedTitle("---\ntitle: Mine\n---\nx\n", "a.md"), null)
   assert.equal(withDerivedTitle("# Heading\n\nx\n", "a.md"), null)
+})
+
+test("a test book (sandbox: true) is built like any book but never counted or indexed, and says so on every page", () => {
+  const book = { ...findBook(registry, "design-fixture"), status: "live", sandbox: true }
+  const opts = bookOptions(registry, book, book.content.live_branch)
+  assert.equal(opts.testBook, true)
+  assert.equal(opts.noindex, true)
+  assert.equal(opts.plausibleScriptSrc, "")
+  assert.equal(opts.statsUrl, "")
+  assert.equal(
+    bookOptions(registry, { ...book, sandbox: false }, book.content.live_branch).testBook,
+    false,
+  )
+  const page =
+    '<html><head><title>x</title></head><body><div id="quartz-body"><div class="center"><div class="page-header"></div></div></div></body></html>'
+  const out = testBookHtml(page)
+  assert.ok(out.includes(`${TEST_BOOK_META}</head>`))
+  assert.match(
+    out,
+    /<div class="center"><div class="tb-credits-block tb-test-book" role="note" aria-label="Test book"><p>Test book — not published, will be removed<\/p><\/div><div class="page-header">/,
+  )
+  // A page without the centre column (none today) still gets the meta.
+  assert.ok(testBookHtml("<head></head><body></body>").includes(TEST_BOOK_META))
 })
