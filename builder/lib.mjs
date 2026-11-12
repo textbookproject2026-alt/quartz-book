@@ -2360,7 +2360,9 @@ export function testBookHtml(html) {
   const at = head.indexOf('<div class="center">')
   return at === -1
     ? head
-    : head.slice(0, at + '<div class="center">'.length) + TEST_BOOK_STRIP + head.slice(at + '<div class="center">'.length)
+    : head.slice(0, at + '<div class="center">'.length) +
+        TEST_BOOK_STRIP +
+        head.slice(at + '<div class="center">'.length)
 }
 
 /** `extra` after the page's title heading (Quartz's h1.article-title); unchanged when there is none or nothing to add. */
