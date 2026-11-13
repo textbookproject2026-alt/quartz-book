@@ -7,6 +7,7 @@ import { test } from "node:test"
 import {
   bookMetadata,
   chapterSlugs,
+  dropDeadAnchors,
   epubFontCss,
   exportFonts,
   exportName,
@@ -321,4 +322,30 @@ test("block ids: the marker goes, a link to one on the page is its text, one on 
     preprocessMarkdown(md, ctx("chapters/one.md")),
     "As argued (Bhaskar, 1975), see [there](https://book.example.org/chapters/chapter-01#^b2).[^1]\n\nBhaskar, R. (1975). *A realist theory of science*.\n\n[^1]: Note.",
   )
+})
+
+test("links to an id the document doesn't have become their text; real ones and outside ones stay", () => {
+  const str = (s) => ({ t: "Str", c: s })
+  const link = (url, text) => ({ t: "Link", c: [["", [], []], [str(text)], [url, ""]] })
+  const blocks = [
+    { t: "Header", c: [2, ["methods", [], []], [str("Methods")]] },
+    {
+      t: "Para",
+      c: [
+        link("#methods", "here"),
+        link("#no-such-heading", "gone"),
+        link("#%5Eb2", "block"),
+        link("https://x.example/#a", "out"),
+      ],
+    },
+    { t: "Div", c: [["box", [], []], [{ t: "Para", c: [link("#box", "box")] }]] },
+  ]
+  const urls = []
+  const walk = (n) =>
+    Array.isArray(n)
+      ? n.forEach(walk)
+      : n && typeof n === "object" && (n.t === "Link" && urls.push(n.c[2][0]), walk(n.c))
+  walk(dropDeadAnchors(blocks))
+  assert.deepEqual(urls, ["#methods", "https://x.example/#a", "#box"])
+  assert.deepEqual(blocks[1].c[1], { t: "Span", c: [["", [], []], [str("gone")]] })
 })
