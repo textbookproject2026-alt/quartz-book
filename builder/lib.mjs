@@ -1994,6 +1994,47 @@ export function preprocessMarkdown(markdown, ctx) {
   return depth ? text : text.replace(/(!\[[^\]]*\]\(<)\//g, "$1")
 }
 
+/**
+ * A pandoc document's blocks with every link to an id it doesn't have ("#heading" on a
+ * page without that heading, "#^block", a typo) turned into its text: Typst stops at a
+ * link to a missing label, and one bad link must never cost a book its PDF. Links that
+ * leave the document are kept. Changes `blocks` in place and returns it.
+ */
+export function dropDeadAnchors(blocks) {
+  const ATTR_AT = {
+    Header: 1,
+    Div: 0,
+    Span: 0,
+    Link: 0,
+    Image: 0,
+    Code: 0,
+    CodeBlock: 0,
+    Table: 0,
+    Figure: 0,
+  }
+  const walk = (node, visit) => {
+    if (Array.isArray(node)) node.forEach((n) => walk(n, visit))
+    else if (node && typeof node === "object") {
+      visit(node)
+      walk(node.c, visit)
+    }
+  }
+  const ids = new Set()
+  walk(blocks, (n) => {
+    const at = ATTR_AT[n.t]
+    if (at !== undefined && Array.isArray(n.c?.[at]) && n.c[at][0]) ids.add(n.c[at][0])
+  })
+  walk(blocks, (n) => {
+    if (n.t !== "Link") return
+    const url = n.c[2][0]
+    if (url.startsWith("#") && !ids.has(decodeURIComponent(url.slice(1)))) {
+      n.t = "Span"
+      n.c = [["", [], []], n.c[1]]
+    }
+  })
+  return blocks
+}
+
 /** The text under `heading` (any level) up to the next heading of that level or higher. */
 export function sectionOf(markdown, heading) {
   const lines = markdown.split("\n")

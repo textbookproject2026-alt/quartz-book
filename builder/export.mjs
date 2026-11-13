@@ -47,6 +47,7 @@ import {
   linkResolver,
   numberBlocks,
   pandocWords,
+  dropDeadAnchors,
   preprocessMarkdown,
   splitTitle,
   withoutContents,
@@ -167,7 +168,7 @@ function main() {
   const doc = (meta, blocks) => {
     const m = exportMeta(meta)
     m.title = { t: "MetaInlines", c: uiTitle(fonts, m.title.c) }
-    return { "pandoc-api-version": apiVersion, meta: m, blocks }
+    return { "pandoc-api-version": apiVersion, meta: m, blocks: dropDeadAnchors(blocks) }
   }
   const front = (meta) => frontPage(meta, { version, apa: formatAll(cslItem(meta)).apa })
 

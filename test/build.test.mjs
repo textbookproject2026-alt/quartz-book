@@ -518,9 +518,13 @@ test(
   { skip: !exportTools && "no pandoc or Typst" },
   () => {
     const book = fixtureBook("design-fixture", (dir) => {
-      // A link to a heading the page doesn't have: Typst stops at the missing label.
+      // Raw Typst that Typst can't run (a link to a missing heading no longer does it:
+      // the export drops those, see the next test).
       const ch = join(dir, "chapters/chapter-01.md")
-      writeFileSync(ch, `${readFileSync(ch, "utf8")}\nSee [nowhere](#no-such-heading).\n`)
+      writeFileSync(
+        ch,
+        `${readFileSync(ch, "utf8")}\n\`\`\`{=typst}\n#c4n-no-such-function()\n\`\`\`\n`,
+      )
       execFileSync("git", ["-C", dir, "add", "-A"])
       execFileSync("git", [
         "-C",
@@ -554,8 +558,41 @@ test(
       assert.equal(p.step, "export")
       assert.match(
         p.message,
-        /\.pdf was not made, so it isn't offered: error: label `<no-such-heading>` does not exist/,
+        /\.pdf was not made, so it isn't offered: error: unknown variable: c4n-no-such-function/,
       )
     }
+  },
+)
+
+test(
+  "a link to a heading the page doesn't have costs no PDF: it is its text in the export",
+  { skip: !exportTools && "no pandoc or Typst" },
+  () => {
+    const book = fixtureBook("design-fixture", (dir) => {
+      const ch = join(dir, "chapters/chapter-01.md")
+      writeFileSync(ch, `${readFileSync(ch, "utf8")}\nSee [nowhere](#no-such-heading).\n`)
+      execFileSync("git", ["-C", dir, "add", "-A"])
+      execFileSync("git", [
+        "-C",
+        dir,
+        "-c",
+        "user.name=f",
+        "-c",
+        "user.email=f@example.invalid",
+        "commit",
+        "-qm",
+        "dead anchor",
+      ])
+    })
+    const b = build(book.dir, "main")
+    assert.equal(b.status, 0, b.log)
+    const data = JSON.parse(
+      /<script type="application\/json" id="tb-downloads">(.*?)<\/script>/.exec(
+        b.read("chapters/chapter-01.html"),
+      )[1],
+    )
+    assert.ok(data.chapter.pdf && b.has(data.chapter.pdf.slice(1)), "the chapter's PDF")
+    assert.ok(data.book.pdf && b.has(data.book.pdf.slice(1)), "the book's PDF")
+    assert.deepEqual(JSON.parse(b.read(".well-known/textbook.json")).problems, [])
   },
 )
