@@ -16,7 +16,10 @@ name: book-lint
 # The required check on the book's live branch is "markdownlint / markdownlint"
 # (book-requests scripts/lib.mjs REQUIRED_CHECKS): the caller's job id, then this job's.
 #
-# markdownlint-cli2 over every Markdown file in the checkout, with the book's own
+# A reader's proposal (a proposed-edits/* pull request) is the exception: it fails
+# only on problems on the lines it changes (the step at the end).
+#
+# Otherwise markdownlint-cli2 over every Markdown file in the checkout, with the book's own
 # .markdownlint-cli2.yaml (every book has one, from the template: the author site's
 # formatting check reads the same file), or the platform's copy,
 # automation/.markdownlint-cli2.yaml, if it has none.
@@ -57,5 +60,23 @@ jobs:
           fi
 
       - uses: DavidAnson/markdownlint-cli2-action@v20
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.head_ref, 'proposed-edits/')) }}
         with:
           globs: "**/*.md"
+
+      # A reader's proposal is judged on its own lines only: the files it changes,
+      # and of those, the lines it adds or changes (automation/scripts/lint-own-lines.mjs).
+      # A problem the authors already had on drafts is a notice, not the reader's failure.
+      - name: A reader's proposal, its own lines
+        if: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'proposed-edits/') }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -uo pipefail
+          git fetch --quiet --depth 1 origin "$BASE"
+          mapfile -t files < <(git diff --name-only --diff-filter=AM "$BASE" HEAD -- '*.md')
+          if [ ${#files[@]} -eq 0 ]; then echo "No Markdown changed."; exit 0; fi
+          git diff -U0 --diff-filter=AM "$BASE" HEAD -- '*.md' > "$RUNNER_TEMP/proposal.diff"
+          npx --yes markdownlint-cli2@0.18.1 "${files[@]}" > "$RUNNER_TEMP/lint.txt" 2>&1
+          cat "$RUNNER_TEMP/lint.txt"
+          node "$RUNNER_TEMP/platform/automation/scripts/lint-own-lines.mjs" "$RUNNER_TEMP/proposal.diff" "$RUNNER_TEMP/lint.txt"
