@@ -738,7 +738,13 @@ test("lint-own-lines: a proposal fails only on the lines it changes", async () =
     "chapters/chapter-11.md:40 MD003/heading-style Heading style",
   ].join("\n")
   const { mine, others } = split(diff, out)
-  assert.deepEqual(mine.map((p) => `${p.line} ${p.rule.slice(0, 5)}`), ["40 MD009", "52 MD012"])
-  assert.deepEqual(others.map((p) => `${p.file.slice(-5)}:${p.line}`), ["10.md:7", "11.md:40"])
+  assert.deepEqual(
+    mine.map((p) => `${p.line} ${p.rule.slice(0, 5)}`),
+    ["40 MD009", "52 MD012"],
+  )
+  assert.deepEqual(
+    others.map((p) => `${p.file.slice(-5)}:${p.line}`),
+    ["10.md:7", "11.md:40"],
+  )
   assert.deepEqual(split(diff, out.split("\n").slice(0, 2).join("\n")).mine, [])
 })
