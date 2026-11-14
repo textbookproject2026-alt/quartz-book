@@ -714,3 +714,31 @@ test("contributors: a chapter published on its own credits the drafts edits it c
     /\| Hal Member \(\[GitHub\]\(https:\/\/github\.com\/hal-member\)\) \| 1 edit \|/,
   )
 })
+
+test("lint-own-lines: a proposal fails only on the lines it changes", async () => {
+  const { split, changedLines } = await import("../automation/scripts/lint-own-lines.mjs")
+  const diff = [
+    "diff --git a/chapters/chapter-10.md b/chapters/chapter-10.md",
+    "--- a/chapters/chapter-10.md",
+    "+++ b/chapters/chapter-10.md",
+    "@@ -40 +40 @@",
+    "-Old text.",
+    "+New  text. ",
+    "@@ -50,0 +51,2 @@",
+    "+One.",
+    "+Two.",
+    "@@ -60,3 +61,0 @@",
+  ].join("\n")
+  assert.deepEqual([...changedLines(diff)["chapters/chapter-10.md"]], [40, 51, 52])
+  const out = [
+    "markdownlint-cli2 v0.18.1 (markdownlint v0.38.0)",
+    "chapters/chapter-10.md:7 MD003/heading-style Heading style [Expected: setext; Actual: atx]",
+    "chapters/chapter-10.md:40:11 MD009/no-trailing-spaces Trailing spaces [Expected: 0 or 2; Actual: 1]",
+    "chapters/chapter-10.md:52 MD012/no-multiple-blanks Multiple consecutive blank lines",
+    "chapters/chapter-11.md:40 MD003/heading-style Heading style",
+  ].join("\n")
+  const { mine, others } = split(diff, out)
+  assert.deepEqual(mine.map((p) => `${p.line} ${p.rule.slice(0, 5)}`), ["40 MD009", "52 MD012"])
+  assert.deepEqual(others.map((p) => `${p.file.slice(-5)}:${p.line}`), ["10.md:7", "11.md:40"])
+  assert.deepEqual(split(diff, out.split("\n").slice(0, 2).join("\n")).mine, [])
+})
