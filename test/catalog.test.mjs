@@ -17,6 +17,10 @@ import {
   cslName,
   headTags,
   jsonLd,
+  exportMeta,
+  odtMeta,
+  typstDocument,
+  typstMeta,
   creatorsOf,
   editorsOf,
   CREDIT_ROLES,
@@ -342,6 +346,16 @@ test("head tags: Highwire, Dublin Core and JSON-LD, escaped, optional fields onl
     tags.includes('<link rel="license" href="https://creativecommons.org/licenses/by/4.0/">'),
   )
   assert.ok(!tags.includes("citation_doi"))
+  assert.ok(tags.includes('<meta name="citation_abstract" content="Body'))
+  assert.ok(tags.includes('<meta name="DCTERMS.accessRights" content="open access">'))
+  assert.ok(
+    tags.includes(
+      '<meta name="DCTERMS.license" content="https://creativecommons.org/licenses/by/4.0/">',
+    ),
+  )
+  // No DOI yet: the identifier is the canonical URL.
+  const ld = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/.exec(tags)[1])
+  assert.equal(ld.identifier, ld.url)
   // Nothing in the JSON-LD can close its <script>.
   assert.equal(tags.match(/<\/script>/g).length, 1)
   const front = headTags(book)
@@ -742,4 +756,39 @@ test("book type: index.md's book-level resource_type, else the registry's type, 
     ).type,
     "report",
   )
+})
+
+test("exports carry the page head's fields: EPUB/ODT metadata, the PDF's document info", () => {
+  const book = bookMetadata(bookFacts, undefined)
+  const ch = pageMetadata(
+    page("chapters/c.md", "chapters/c", {
+      title: "C",
+      frontmatter: { authors: [{ name: "Ada Lovelace" }], keywords: ["realism", 'say "x"'] },
+    }),
+    { ...book, editors: [{ name: "Josiah Carberry" }] },
+    bookFacts,
+  )
+  const m = exportMeta(ch)
+  const text = (v) => v.c.map((i) => i.c ?? " ").join("")
+  assert.equal(text(m.publisher), "Confused for Now")
+  assert.equal(text(m.identifier), ch.url)
+  assert.match(
+    text(m.rights),
+    /^CC BY 4\.0 \(https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/\), open access$/,
+  )
+  assert.deepEqual(m.subject.c.map(text), ["realism", 'say "x"'])
+  assert.equal(m.contributor.c[0].c.role.c, "edt")
+  // ODT: plain values; the PDF: quoted Typst strings, and its own description and date.
+  assert.equal(text(odtMeta(m, ch).contributor), "Josiah Carberry (editor)")
+  assert.ok(!("subject" in odtMeta(m, ch)))
+  assert.deepEqual(
+    typstMeta(m, ch).keywords.c.map((k) => k.c[0].c[1]),
+    ['"realism"', '"say \\"x\\""'],
+  )
+  const doc = typstDocument(ch)
+  assert.match(doc, /^#set document\(description: ".*Licence: CC BY 4\.0 .*open access\./)
+  assert.match(doc, /date: datetime\(year: 2026, month: 10, day: 8\)\)\n$/)
+  assert.ok(!doc.includes("author:"))
+  const edited = typstDocument({ ...ch, creators: [], editors: [{ name: "J C" }, { name: "K D" }] })
+  assert.match(edited, /author: "J C and K D \(editors\)"/)
 })

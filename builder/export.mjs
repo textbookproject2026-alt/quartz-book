@@ -42,6 +42,9 @@ import {
   typstFontRules,
   uiTitle,
   exportMeta,
+  typstDocument,
+  typstMeta,
+  odtMeta,
   exportName,
   frontPage,
   linkResolver,
@@ -53,7 +56,7 @@ import {
   withoutContents,
   setPlatform,
 } from "./lib.mjs"
-import { formatAll } from "./citations.mjs"
+import { ACCESSED_US_MARK, formatAll } from "./citations.mjs"
 import { noteProblem } from "./problems.mjs"
 
 const [workDir, outDir] = process.argv.slice(2)
@@ -170,7 +173,15 @@ function main() {
     m.title = { t: "MetaInlines", c: uiTitle(fonts, m.title.c) }
     return { "pandoc-api-version": apiVersion, meta: m, blocks: dropDeadAnchors(blocks) }
   }
-  const front = (meta) => frontPage(meta, { version, apa: formatAll(cslItem(meta)).apa })
+  // A download is a fixed copy: APA's "Retrieved …, from" is for the changing page.
+  const front = (meta) =>
+    frontPage(meta, {
+      version,
+      apa: formatAll(cslItem(meta)).apa.map((r) => ({
+        ...r,
+        text: r.text.replace(`Retrieved ${ACCESSED_US_MARK}, from `, ""),
+      })),
+    })
 
   mkdirSync(join(outDir, EXPORT_DIR), { recursive: true })
   const made = new Map() // page path ("/" for the book) -> { ext: url path }
@@ -275,7 +286,7 @@ function main() {
       noteProblem(workDir, "export", `${name} was not made, so it isn't offered: ${why}`)
     }
   }
-  const pdf = (json, toc) => (out) => {
+  const pdf = (json, toc, meta) => (out) => {
     const typ = join(content, `.tb-export-${process.pid}.typ`)
     try {
       writeFileSync(
@@ -295,8 +306,10 @@ function main() {
             "-H",
             header,
           ],
-          JSON.stringify(json),
-        ).replace("#outline-here", toc ? "#outline(depth: 2)\n#pagebreak()" : ""),
+          JSON.stringify({ ...json, meta: typstMeta(json.meta, meta) }),
+        )
+          .replace(/^/, () => typstDocument(meta))
+          .replace("#outline-here", toc ? "#outline(depth: 2)\n#pagebreak()" : ""),
       )
       const typst = spawnSync(TYPST, ["compile", "--root", content, ...typstFonts, typ, out], {
         encoding: "utf8",
@@ -350,7 +363,7 @@ function main() {
       ...blocks,
       ...contributorsBackMatter(p.contributors),
     ])
-    write(p.path, names.get(p.slug), "pdf", pdf(json, false))
+    write(p.path, names.get(p.slug), "pdf", pdf(json, false, p.metadata))
     write(p.path, names.get(p.slug), "epub", pandocTo("epub3", json, epubArgs(json)))
   }
 
@@ -384,9 +397,14 @@ function main() {
     ...chapterBlocks,
     ...contributorsBackMatter(catalog.credits?.contributors),
   ])
-  write("/", "", "pdf", pdf(bookJson, true))
+  write("/", "", "pdf", pdf(bookJson, true, book))
   write("/", "", "epub", pandocTo("epub3", bookJson, ["--toc", ...epubArgs(bookJson)]))
-  write("/", "", "odt", pandocTo("odt", bookJson, ["--toc", ...odtArgs]))
+  write(
+    "/",
+    "",
+    "odt",
+    pandocTo("odt", { ...bookJson, meta: odtMeta(bookJson.meta, book) }, ["--toc", ...odtArgs]),
+  )
 
   // Dateless aliases, as redirects to today's files.
   const aliases = []

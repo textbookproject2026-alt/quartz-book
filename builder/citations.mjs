@@ -65,6 +65,25 @@ export function runsOf(html) {
   return runs
 }
 
+/** The page's script fills this with the reader's day in US form (APA, Chicago). */
+export const ACCESSED_US_MARK = "{accessed-us}"
+
+/**
+ * The access date the CSL styles leave out of a web source with a date: APA 7's
+ * "Retrieved <day>, from <URL>" (a book anyone can edit is content that changes)
+ * and Chicago's "Accessed <day>." before the URL. Not with a DOI, which is stable.
+ */
+const WITH_ACCESS = {
+  apa: (text, url) =>
+    text.endsWith(url)
+      ? `${text.slice(0, -url.length)}Retrieved ${ACCESSED_US_MARK}, from ${url}`
+      : text,
+  chicago: (text, url) =>
+    text.endsWith(` ${url}.`)
+      ? `${text.slice(0, -url.length - 2)} Accessed ${ACCESSED_US_MARK}. ${url}.`
+      : text,
+}
+
 /** One item in every style: { apa: runs, chicago: runs, … }, the access date marked. */
 export function formatAll(item) {
   const out = {}
@@ -74,10 +93,14 @@ export function formatAll(item) {
       template: `tb-${key}`,
       lang,
     })
-    out[key] = runsOf(html).map((r) => ({
+    const runs = runsOf(html).map((r) => ({
       ...r,
       text: r.text.replaceAll(ACCESSED_TEXT[lang], ACCESSED_MARK),
     }))
+    const last = runs.at(-1)
+    if (last && WITH_ACCESS[key] && item.URL && !item.DOI)
+      last.text = WITH_ACCESS[key](last.text, item.URL)
+    out[key] = runs
   }
   return out
 }
