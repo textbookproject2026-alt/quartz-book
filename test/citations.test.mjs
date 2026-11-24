@@ -31,7 +31,7 @@ test("each style, as runs with the titles in italics", () => {
   const s = formatAll(cslItem(chapter))
   assert.equal(
     text(s.apa),
-    "Sommer, B., & Laschkolnig, C. (2026). Chapter 3: Reality & <More>. In Ontology for Social Research. Confused for Now. https://book.example.org/chapters/c",
+    "Sommer, B., & Laschkolnig, C. (2026). Chapter 3: Reality & <More>. In Ontology for Social Research. Confused for Now. Retrieved {accessed-us}, from https://book.example.org/chapters/c",
   )
   assert.deepEqual(
     s.apa.find((r) => r.italic),
@@ -62,7 +62,7 @@ test("the page's data: the chapter and the book; the front page has the book alo
   assert.deepEqual(Object.keys(d.styles), ["chapter", "book"])
   assert.match(
     text(d.styles.book.apa),
-    /^Sommer, B\., & Laschkolnig, C\. \(2026\)\. Ontology for Social Research\. Confused for Now\. https:\/\/book\.example\.org\/$/,
+    /^Sommer, B\., & Laschkolnig, C\. \(2026\)\. Ontology for Social Research\. Confused for Now\. Retrieved \{accessed-us\}, from https:\/\/book\.example\.org\/$/,
   )
   const front = citeData(cslItem(book), cslItem(book))
   assert.equal(front.chapter, null)
@@ -105,11 +105,11 @@ test("a chapter in a book with editors: the editors in all four styles", () => {
   const { book, chapter } = edited({ authors: ["Ann Author"], editors: ["Ed Itor", "Sue Second"] })
   assert.equal(
     text(chapter.apa),
-    "Writer, C. (2026). Chapter One. In E. Itor & S. Second (Eds.), Book T. Confused for Now. https://book.example.org/chapters/c",
+    "Writer, C. (2026). Chapter One. In E. Itor & S. Second (Eds.), Book T. Confused for Now. Retrieved {accessed-us}, from https://book.example.org/chapters/c",
   )
   assert.equal(
     text(chapter.chicago),
-    "Writer, Cee. 2026. “Chapter One.” In Book T, edited by Ed Itor and Sue Second. Confused for Now. https://book.example.org/chapters/c.",
+    "Writer, Cee. 2026. “Chapter One.” In Book T, edited by Ed Itor and Sue Second. Confused for Now. Accessed {accessed-us}. https://book.example.org/chapters/c.",
   )
   assert.equal(
     text(chapter.mla),
@@ -126,11 +126,11 @@ test("a book with editors only: an edited volume, cited by its editors (Ed./Eds.
   const { book } = edited({ editors: ["Ed Itor", "Sue Second"] })
   assert.equal(
     text(book.apa),
-    "Itor, E., & Second, S. (Eds.). (2026). Book T. Confused for Now. https://book.example.org/",
+    "Itor, E., & Second, S. (Eds.). (2026). Book T. Confused for Now. Retrieved {accessed-us}, from https://book.example.org/",
   )
   assert.equal(
     text(book.chicago),
-    "Itor, Ed, and Sue Second, eds. 2026. Book T. Confused for Now. https://book.example.org/.",
+    "Itor, Ed, and Sue Second, eds. 2026. Book T. Confused for Now. Accessed {accessed-us}. https://book.example.org/.",
   )
   assert.equal(
     text(book.mla),

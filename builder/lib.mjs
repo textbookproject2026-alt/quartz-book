@@ -1333,7 +1333,8 @@ export function jsonLd(meta, { pdfUrl = "", contributors = [] } = {}) {
     inLanguage: meta.lang,
     license: meta.licence.url,
     isAccessibleForFree: true,
-    ...(meta.doi ? { identifier: `https://doi.org/${meta.doi}` } : {}),
+    // The canonical URL until the DOI exists.
+    identifier: meta.doi ? `https://doi.org/${meta.doi}` : meta.url,
   }
   const editors = ldPeople(meta.editors)
   const work = {
@@ -1393,6 +1394,7 @@ export function headTags(meta, { pdfUrl = "", contributors = [] } = {}) {
   for (const e of meta.editors ?? []) m("citation_editor", e.name)
   m("citation_publication_date", meta.published.replace(/-/g, "/"))
   m("citation_publisher", meta.publisher)
+  m("citation_abstract", meta.summary)
   m("citation_language", meta.lang)
   m("citation_keywords", meta.keywords.join("; "))
   // Zotero's Embedded Metadata translator: citation_book_title makes a page a
@@ -1419,6 +1421,9 @@ export function headTags(meta, { pdfUrl = "", contributors = [] } = {}) {
   m("DC.format", meta.format)
   m("DC.language", meta.lang)
   m("DC.rights", `${meta.licence.id} (${meta.licence.url}), ${meta.rights}`)
+  tags.push(`<link rel="schema.DCTERMS" href="http://purl.org/dc/terms/">`)
+  m("DCTERMS.accessRights", meta.rights)
+  m("DCTERMS.license", meta.licence.url)
   tags.push(`<link rel="license" href="${escAttr(meta.licence.url)}">`)
   tags.push(
     `<script type="application/ld+json">${scriptJson(jsonLd(meta, { pdfUrl, contributors }))}</script>`,
@@ -2186,15 +2191,84 @@ export const licenceName = (id) =>
     ? "CC0 1.0"
     : (/^CC-([A-Z-]+)-(\d\.\d)$/.exec(id)?.slice(1).join(" ").replace(/^/, "CC ") ?? id)
 
-/** pandoc's metadata for an export: title, authors, date, language. */
+/** The rights statement the exports carry: "CC BY-SA 4.0 (url), open access". */
+export const rightsLine = (meta) =>
+  `${licenceName(meta.licence.id)} (${meta.licence.url}), ${meta.rights}`
+
+/**
+ * pandoc's metadata for an export, the page head's fields (pageMetadata): EPUB's OPF
+ * (dc:*), ODT's meta.xml. The PDF's are set apart (typstDocument): pandoc's Typst
+ * template writes keywords as bare words, which Typst can't compile.
+ */
 export const exportMeta = (meta) => {
   const str = (s) => ({ t: "MetaInlines", c: pandocWords(s) })
+  const list = (xs) => ({ t: "MetaList", c: xs.map(str) })
   return {
     title: str(meta.title),
-    author: { t: "MetaList", c: meta.creators.map((c) => str(c.name)) },
+    author: list(meta.creators.map((c) => c.name)),
+    // EPUB: dc:contributor, role edt. Contributors are never cited.
+    ...(meta.editors?.length
+      ? {
+          contributor: {
+            t: "MetaList",
+            c: meta.editors.map((e) => ({
+              t: "MetaMap",
+              c: { text: str(e.name), role: { t: "MetaString", c: "edt" } },
+            })),
+          },
+        }
+      : {}),
     ...(meta.published ? { date: str(meta.published) } : {}),
     lang: { t: "MetaString", c: meta.lang },
+    publisher: str(meta.publisher),
+    ...(meta.summary ? { description: str(meta.summary) } : {}),
+    ...(meta.keywords.length
+      ? { subject: list(meta.keywords), keywords: list(meta.keywords) }
+      : {}),
+    identifier: str(meta.doi ? `https://doi.org/${meta.doi}` : meta.url),
+    rights: str(rightsLine(meta)),
   }
+}
+
+/** ODT's meta.xml keeps only plain values: keywords are its meta:keyword, editors one line. */
+export const odtMeta = (pandocMeta, meta) => {
+  const { subject, contributor, ...rest } = pandocMeta
+  const str = (s) => ({ t: "MetaInlines", c: pandocWords(s) })
+  return meta.editors?.length
+    ? { ...rest, contributor: str(meta.editors.map((e) => `${e.name} (editor)`).join("; ")) }
+    : rest
+}
+
+const typstString = (s) => JSON.stringify(String(s))
+
+/** The PDF's document info and XMP (Typst): title and authors come from pandoc's template. */
+export const typstDocument = (meta) => {
+  const [y, mo, d] = (meta.published ?? "").split("-").map(Number)
+  const parts = [
+    `description: ${typstString([meta.summary, `Licence: ${rightsLine(meta)}.`, `Published by ${meta.publisher}. ${meta.doi ? `https://doi.org/${meta.doi}` : meta.url}`].filter(Boolean).join(" "))}`,
+    ...(y && mo && d ? [`date: datetime(year: ${y}, month: ${mo}, day: ${d})`] : []),
+  ]
+  return `#set document(${parts.join(", ")})\n`
+}
+
+/**
+ * The PDF's pandoc metadata: keywords as quoted Typst strings, which the template
+ * puts in its own set document (it would reset any set here to none).
+ */
+export const typstMeta = (pandocMeta, meta) => {
+  const { keywords, subject, ...rest } = pandocMeta
+  return meta.keywords.length
+    ? {
+        ...rest,
+        keywords: {
+          t: "MetaList",
+          c: meta.keywords.map((k) => ({
+            t: "MetaInlines",
+            c: [{ t: "RawInline", c: ["typst", typstString(k)] }],
+          })),
+        },
+      }
+    : rest
 }
 
 // --- The exports' fonts: design.yaml's families, embedded --------------------
