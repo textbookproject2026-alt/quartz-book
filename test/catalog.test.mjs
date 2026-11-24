@@ -788,4 +788,7 @@ test("exports carry the page head's fields: EPUB/ODT metadata, the PDF's documen
   const doc = typstDocument(ch)
   assert.match(doc, /^#set document\(description: ".*Licence: CC BY 4\.0 .*open access\./)
   assert.match(doc, /date: datetime\(year: 2026, month: 10, day: 8\)\)\n$/)
+  assert.ok(!doc.includes("author:"))
+  const edited = typstDocument({ ...ch, creators: [], editors: [{ name: "J C" }, { name: "K D" }] })
+  assert.match(edited, /author: "J C and K D \(editors\)"/)
 })

@@ -2247,6 +2247,14 @@ export const typstDocument = (meta) => {
   const parts = [
     `description: ${typstString([meta.summary, `Licence: ${rightsLine(meta)}.`, `Published by ${meta.publisher}. ${meta.doi ? `https://doi.org/${meta.doi}` : meta.url}`].filter(Boolean).join(" "))}`,
     ...(y && mo && d ? [`date: datetime(year: ${y}, month: ${mo}, day: ${d})`] : []),
+    // An edited volume has no authors: its editors are the file's Author (the
+    // template sets author only when there are authors, and the title page names
+    // the editors already).
+    ...(!meta.creators.length && meta.editors?.length
+      ? [
+          `author: ${typstString(`${joinNames(meta.editors.map((e) => e.name))} (${meta.editors.length > 1 ? "editors" : "editor"})`)}`,
+        ]
+      : []),
   ]
   return `#set document(${parts.join(", ")})\n`
 }
