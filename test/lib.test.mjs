@@ -111,6 +111,7 @@ test("the rendered config: contentDir is empty, and the per-book values come fro
     // The fixture registry has no analytics: no statistics. A book unless it says otherwise.
     statsUrl: "",
     statsHost: "",
+    donateUrl: "",
     type: "book",
   })
   // Every footer links the platform's Privacy page, and the first-visit notice does.
@@ -966,6 +967,46 @@ test("statistics: the public dashboard, only for a live book", () => {
   assert.equal(
     bookOptions(registry, { ...book, status: "preview" }, book.content.live_branch).statsUrl,
     "",
+  )
+})
+
+test("donate_url: a PayPal link or nothing; anything else refuses the build", async () => {
+  const { donateUrl } = await import("../builder/lib.mjs")
+  const reg = (donate_url) => ({ platform: { donate_url } })
+  assert.equal(donateUrl({ platform: {} }), "")
+  assert.equal(donateUrl(reg("")), "")
+  for (const ok of [
+    "https://www.paypal.com/donate/?hosted_button_id=ABC123",
+    "https://paypal.me/confused4now",
+  ])
+    assert.equal(donateUrl(reg(ok)), ok)
+  for (const bad of [
+    "http://www.paypal.com/donate",
+    "https://paypal.com/donate",
+    "https://www.paypal.com.evil.example/x",
+    "https://paypal.me/",
+    "https://example.org/donate",
+    'https://paypal.me/x"onmouseover=y',
+    42,
+  ])
+    assert.throws(() => donateUrl(reg(bad)), /platform\.donate_url .*https:\/\/www\.paypal\.com\//)
+  const registry = JSON.parse(
+    readFileSync(new URL("../fixtures/registry.json", import.meta.url), "utf8"),
+  )
+  const book = registry.books.find((b) => b.status === "live")
+  const digest = registryDigest(registry, book)
+  assert.equal(
+    registryDigest({ ...registry, platform: { ...registry.platform, donate_url: "" } }, book),
+    digest,
+  )
+  const set = { ...registry, platform: { ...registry.platform, donate_url: "https://paypal.me/x" } }
+  assert.notEqual(registryDigest(set, book), digest)
+  const opts = bookOptions(set, book, book.content.live_branch)
+  assert.equal(opts.donateUrl, "https://paypal.me/x")
+  const out = renderConfig(shared, opts, [])
+  assert.equal(
+    out.plugins.find((p) => p.source?.name === "edit-on-github").options.donateUrl,
+    "https://paypal.me/x",
   )
 })
 
