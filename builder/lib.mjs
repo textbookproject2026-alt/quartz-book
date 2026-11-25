@@ -2245,7 +2245,8 @@ const typstString = (s) => JSON.stringify(String(s))
 export const typstDocument = (meta) => {
   const [y, mo, d] = (meta.published ?? "").split("-").map(Number)
   const parts = [
-    `description: ${typstString([meta.summary, `Licence: ${rightsLine(meta)}.`, `Published by ${meta.publisher}. ${meta.doi ? `https://doi.org/${meta.doi}` : meta.url}`].filter(Boolean).join(" "))}`,
+    // Subject is the summary alone; the licence is XMP rights (pdfRightsArgs).
+    ...(meta.summary ? [`description: ${typstString(meta.summary)}`] : []),
     ...(y && mo && d ? [`date: datetime(year: ${y}, month: ${mo}, day: ${d})`] : []),
     // An edited volume has no authors: its editors are the file's Author (the
     // template sets author only when there are authors, and the title page names
@@ -2258,6 +2259,20 @@ export const typstDocument = (meta) => {
   ]
   return `#set document(${parts.join(", ")})\n`
 }
+
+/**
+ * exiftool's arguments for the PDF's licence, which Typst can't write: XMP
+ * dc:rights ("CC BY-SA 4.0"), xmpRights:WebStatement (the licence URL) and
+ * xmpRights:Marked (True: a licensed work; False for CC0, public domain).
+ */
+export const pdfRightsArgs = (meta, file) => [
+  "-q",
+  "-overwrite_original",
+  `-XMP-dc:Rights=${licenceName(meta.licence.id)}`,
+  `-XMP-xmpRights:WebStatement=${meta.licence.url}`,
+  `-XMP-xmpRights:Marked=${meta.licence.id === "CC0-1.0" ? "False" : "True"}`,
+  file,
+]
 
 /**
  * The PDF's pandoc metadata: keywords as quoted Typst strings, which the template
