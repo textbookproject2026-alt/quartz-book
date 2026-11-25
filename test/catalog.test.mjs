@@ -20,6 +20,7 @@ import {
   exportMeta,
   odtMeta,
   typstDocument,
+  pdfRightsArgs,
   typstMeta,
   creatorsOf,
   editorsOf,
@@ -786,7 +787,25 @@ test("exports carry the page head's fields: EPUB/ODT metadata, the PDF's documen
     ['"realism"', '"say \\"x\\""'],
   )
   const doc = typstDocument(ch)
-  assert.match(doc, /^#set document\(description: ".*Licence: CC BY 4\.0 .*open access\./)
+  // Subject is the summary alone; the licence is XMP (pdfRightsArgs).
+  assert.ok(
+    typstDocument({ ...ch, summary: 'S "q".' }).startsWith(
+      '#set document(description: "S \\"q\\".", ',
+    ),
+  )
+  assert.ok(!doc.includes("description:")) // no summary, no Subject
+  assert.ok(!doc.includes("Licence"))
+  assert.deepEqual(pdfRightsArgs(ch, "c.pdf").slice(2), [
+    "-XMP-dc:Rights=CC BY 4.0",
+    "-XMP-xmpRights:WebStatement=https://creativecommons.org/licenses/by/4.0/",
+    "-XMP-xmpRights:Marked=True",
+    "c.pdf",
+  ])
+  assert.ok(
+    pdfRightsArgs({ ...ch, licence: { id: "CC0-1.0", url: "u" } }, "c.pdf").includes(
+      "-XMP-xmpRights:Marked=False",
+    ),
+  )
   assert.match(doc, /date: datetime\(year: 2026, month: 10, day: 8\)\)\n$/)
   assert.ok(!doc.includes("author:"))
   const edited = typstDocument({ ...ch, creators: [], editors: [{ name: "J C" }, { name: "K D" }] })

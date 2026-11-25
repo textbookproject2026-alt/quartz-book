@@ -44,6 +44,7 @@ import {
   exportMeta,
   typstDocument,
   typstMeta,
+  pdfRightsArgs,
   odtMeta,
   exportName,
   frontPage,
@@ -62,6 +63,9 @@ import { noteProblem } from "./problems.mjs"
 const [workDir, outDir] = process.argv.slice(2)
 const PANDOC = process.env.PANDOC || "pandoc"
 const TYPST = process.env.TYPST || "typst"
+// The PDFs' XMP licence (lib.mjs pdfRightsArgs); without it they're made, unmarked, with a warning.
+const EXIFTOOL = process.env.EXIFTOOL || "exiftool"
+let exiftool = true
 const started = Date.now()
 // Paragraph numbers in the margin, as the site draws them.
 const TYPST_HEADER = `#let pnum(n) = [#h(0pt, weak: true)#box(width: 0pt, move(dx: -2.6em, text(size: 0.7em, fill: luma(110), str(n))))]
@@ -96,6 +100,12 @@ try {
     } catch {
       throw new Error(`${name} is not installed (${cmd}), so there are no downloads in this build.`)
     }
+  }
+  try {
+    console.log(`export: exiftool ${run(EXIFTOOL, ["-ver"]).trim()}`)
+  } catch {
+    exiftool = false
+    warn(`exiftool is not installed (${EXIFTOOL}): the PDFs carry no XMP licence.`)
   }
   main()
 } catch (err) {
@@ -317,6 +327,16 @@ function main() {
       })
       if (typst.status !== 0)
         throw Object.assign(new Error("typst failed"), { stderr: typst.stderr })
+      if (exiftool) {
+        const et = spawnSync(EXIFTOOL, pdfRightsArgs(meta, out), {
+          encoding: "utf8",
+          timeout: 60_000,
+        })
+        if (et.status !== 0)
+          warn(
+            `${out.split("/").pop()}: exiftool couldn't write its licence (${(et.stderr || "").trim()}).`,
+          )
+      }
       // A family Typst can't find falls back silently but for this warning: say so.
       const unknown = [
         ...new Set(
