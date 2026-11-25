@@ -62,6 +62,21 @@ export const privacyUrl = (registry) => {
   return domain ? `https://${domain}/privacy` : ""
 }
 
+/**
+ * The platform's donation link (registry platform.donate_url), or "" for none: then
+ * no Donate anywhere. Only a PayPal address; anything else refuses the build, so a
+ * typo can't send readers somewhere else. The portal's build has the same rule.
+ */
+export const DONATE_URL = /^https:\/\/(www\.paypal\.com|paypal\.me)\/[^\s"'<>\\]+$/
+export function donateUrl(registry) {
+  const url = registry.platform?.donate_url ?? ""
+  if (url !== "" && (typeof url !== "string" || !DONATE_URL.test(url)))
+    refuse(
+      `the registry's platform.donate_url is ${JSON.stringify(url)}. It must be a PayPal link starting with https://www.paypal.com/ or https://paypal.me/, or "" for no Donate button.`,
+    )
+  return url
+}
+
 export function bookOptions(registry, book, branch, { preview = false } = {}) {
   if (!branch) refuse("no branch given. Say which branch this build is for.")
   const suggestEnabled = book.suggest_edit?.enabled === true
@@ -107,6 +122,8 @@ export function bookOptions(registry, book, branch, { preview = false } = {}) {
     // The platform's Privacy page (the portal's /privacy): every footer, and the
     // first-visit notice.
     privacyUrl: privacyUrl(registry),
+    // The platform's donation link: ⋯ and the page footer. "" for none.
+    donateUrl: donateUrl(registry),
     // Hypothes.is groups readers may use besides the platform's anchor group
     // (registry annotations.hypothesis_groups; the public layer is off).
     hypothesisGroups: (book.annotations?.hypothesis_groups ?? []).map((g) => g.id),
@@ -152,6 +169,8 @@ export function registryDigest(registry, book) {
     analytics: registry.platform?.analytics ?? null,
     // A change to who is credited, or to the ORCID switch, rebuilds every book.
     people: platformPeopleOf(registry),
+    // Only once set, so that adding the empty field rebuilt nothing.
+    ...(registry.platform?.donate_url ? { donate_url: registry.platform.donate_url } : {}),
   }
   const input = canonicalJson({ book, platform })
   return `sha256:${createHash("sha256").update(input).digest("hex")}`
@@ -211,6 +230,7 @@ export function renderConfig(config, opts, ignorePatterns, explorerOrder = []) {
     privacyUrl: opts.privacyUrl ?? "",
     statsUrl: opts.statsUrl ?? "",
     statsHost: opts.statsUrl ? opts.domain : "",
+    donateUrl: opts.donateUrl ?? "",
     type: opts.type ?? "",
     // What each page was built from (the editor says when drafts has moved on).
     sourceCommit: opts.sourceCommit ?? "",
